@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "process_tree_widget"
+version = "0.0.1"
+dependencies = ["anywidget", "treelib", "pydantic"]
+readme = "README.md"
+
+[dependency-groups]
+dev = [
+    "watchfiles",
+    "jupyterlab",
+    "ruff",
+    "mypy",
+    "marimo",
+    "ibis-framework[duckdb,deltalake]",
+    "databricks-connect",
+]
+
+[tool.hatch.build]
+only-packages = true
+artifacts = ["src/process_tree_widget/static/*"]
+
+[tool.hatch.build.hooks.jupyter-builder]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = ["src/process_tree_widget/static/widget.js"]
+skip-if-exists = ["src/process_tree_widget/static/widget.js"]
+dependencies = ["hatch-jupyter-builder>=0.5.0"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+npm = "npm"
+build_cmd = "build"
+
+[tool.ruff]
+exclude = [
+    "example.py",
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+]
+
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+exclude = ["example.py"]

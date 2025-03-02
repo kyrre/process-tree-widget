@@ -1,0 +1,12 @@
+node_modules
+.venv
+dist
+.DS_Store
+
+# Python
+__pycache__
+.ipynb_checkpoints
+
+src/process_tree_widget/static
+
+output_dir
