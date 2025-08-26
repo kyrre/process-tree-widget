@@ -1,8 +1,9 @@
 from treelib import Tree
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_pascal
-from datetime import datetime
 from typing import Self, List, Set, Final, Dict, Sequence
+import time
 
 
 class Process(BaseModel):
@@ -103,15 +104,16 @@ class ProcessTree:
             self.build_tree(processes)
 
     def build_tree(self, processes: List) -> Self:
-        for process in processes:
-            _process = Process.model_validate(process)
-            self.insert_process(_process)
+        try:
+            for process in processes:
+                _process = Process.model_validate(process)
+                self.insert_process(_process)
+        except:
+            exit(1)
 
         return self
 
     def insert_or_update(self, process: Process) -> None:
-        """ """
-
         node = self.tree.get_node(process.identifier())
         if not node:
             self.tree.create_node(
@@ -130,24 +132,20 @@ class ProcessTree:
                     data=process,
                 )
 
+                # Check if the parent identifier has actually changed
                 if existing_process.parent_identifier() != process.parent_identifier():
                     self.tree.move_node(
                         process.identifier(), process.parent_identifier()
                     )
 
     def insert_process(self, process: Process) -> None:
-        """
-        Insert a process into the tree, creating any missing ancestor nodes.
-        """
 
-        # this is the grand parent of the process that is created
         parent_process = Process(
             target_process_id=process.parent_process_id,
             target_process_filename=process.parent_process_filename,
             target_process_creation_time=process.parent_process_creation_time,
         )
 
-        # this is the parent of the process that is created
         acting_process = Process(
             target_process_id=process.acting_process_id,
             target_process_filename=process.acting_process_filename,
@@ -160,6 +158,7 @@ class ProcessTree:
         self.insert_or_update(parent_process)
         self.insert_or_update(acting_process)
         self.insert_or_update(process)
+
 
     def get_all_pids(self) -> Set[int]:
         """
@@ -207,3 +206,64 @@ class ProcessTree:
             str: A formatted string showing the process hierarchy.
         """
         return str(self.tree)
+
+    def subtree_with_ancestors(
+        self, node_identifier: str, num_ancestors: int = 2
+    ) -> "ProcessTree":
+        """
+        Returns a ProcessTree containing the subtree starting from an ancestor
+        of the specified node.
+
+        Args:
+            node_identifier: Identifier of the node of interest
+            num_ancestors: Number of ancestor levels to include
+
+        Returns:
+            ProcessTree: A new ProcessTree containing the subtree with ancestors
+        """
+        if not self.tree.contains(node_identifier):
+            return ProcessTree()
+
+        # Find the ancestor that will be the new root
+        ancestor_id = node_identifier
+        node = self.tree.get_node(node_identifier)
+        tree_id = self.tree.identifier
+
+        for _ in range(num_ancestors):
+            if (
+                node.predecessor(tree_id) is None
+                or node.predecessor(tree_id) == "<root>"
+            ):
+                break
+            ancestor_id = node.predecessor(tree_id)
+            node = self.tree.get_node(ancestor_id)
+
+        # Get the subtree starting from the ancestor
+        result = ProcessTree()
+        result.tree = self.tree.subtree(ancestor_id)
+        result.root = ancestor_id  # Set the ProcessTree's own root attribute
+
+        return result
+
+    def get_first_and_last_processes(self):
+        """
+        Returns the processes with the earliest and latest creation timestamps in the tree.
+
+        Returns:
+            tuple[Node, Node]: (earliest_process, latest_process)
+            If no valid processes are found, returns (None, None)
+        """
+        valid_nodes = [
+            node
+            for node in self.tree.all_nodes_itr()
+            if node.data
+            and node.data.target_process_creation_time != Process.MISSING_CREATION_TIME
+        ]
+
+        if not valid_nodes:
+            return None, None
+
+        earliest = min(valid_nodes, key=lambda n: n.data.target_process_creation_time)
+        latest = max(valid_nodes, key=lambda n: n.data.target_process_creation_time)
+
+        return earliest, latest
