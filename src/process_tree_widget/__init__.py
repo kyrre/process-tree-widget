@@ -15,3 +15,5 @@ class ProcessTreeWidget(anywidget.AnyWidget):
 
     process_id = traitlets.Int(-1).tag(sync=True)
     events: traitlets.List = traitlets.List([]).tag(sync=True)
+    start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
+    end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
