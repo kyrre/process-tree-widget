@@ -1,24 +1,5 @@
 import { ProcessTree } from "./tree.js";
-import {timeProcessBarplot} from "./timefilter.js";
 import { html } from "htl";
-import { Library } from "@observablehq/stdlib";
-
-const library = new Library();
-const startDate = library.Mutable(null);
-const endDate = library.Mutable(null);
-
-
-const setDateRange = (start, end) => {
-    startDate.value = start;
-    endDate.value = end;
-    console.log("Date range updated:", startDate.value, endDate.value);
-};
-
-const resetDateRange = () => {
-    startDate.value = null;
-    endDate.value = null;
-    console.log("Date range reset");
-};
 
 export default {
 	initialize({ model }) {
@@ -37,10 +18,7 @@ export default {
 					<button id="home-button" title="Go to root">⌂</button>
 					<button id="right-button" title="Go to selected">&rarr;</button>
 				</div>
-				<div id="chart-container" style="margin-top: 20px; align-self: flex-end;">
-				</div>
-				<div id="tree" style="flex: 1; min-height: 400px; padding: 10px; display: flex; align-items: center; justify-content: center;">
-				</div>
+				<div id="tree" style="flex: 1; min-height: 400px; padding: 10px; display: flex; align-items: center; justify-content: center;"></div>
 			</div>
 		`;
 
@@ -74,19 +52,45 @@ export default {
 			}
 		};
 
-		this.processTree = new ProcessTree(treeContainer, options);
+		const getFilteredData = () => {
+			const data = model.get("events") || [];
+			const startDateStr = model.get("_start_date");
+			const endDateStr = model.get("_end_date");
+			const startDate = startDateStr ? new Date(startDateStr) : null;
+			const endDate = endDateStr ? new Date(endDateStr) : null;
 
-		// Initialize the time chart
-		const chartContainer = layout.querySelector("#chart-container");
-		this.timeChart = timeProcessBarplot(model.get("events"), {
-			width: 300,
-			height: 150,
-			startDate,
-			endDate,
-			setDateRange,
-			resetDateRange,
-		});
-		chartContainer.appendChild(this.timeChart);
+			console.debug("getFilteredData: data", data);
+			console.debug("getFilteredData: startDate", startDate);
+			console.debug("getFilteredData: endDate", endDate);
+
+			const filtered = data.filter(d => {
+				if (!startDate && !endDate) {
+					console.debug("No start/end date, keeping", d);
+					return true;
+				}
+				if (!d.ProcessCreationTime) {
+					console.debug("No ProcessCreationTime, keeping", d);
+					return true;
+				}
+				const date = new Date(d.ProcessCreationTime);
+				const hasChildren = data.some(child => child._deps?.includes(d._name));
+				const isBeforeStartDate = startDate && date < startDate;
+				const inRange = startDate && endDate && date >= startDate && date <= endDate;
+				const keep = (hasChildren && isBeforeStartDate) || inRange;
+				return keep;
+			});
+
+			const sorted = filtered.sort((a, b) => {
+				if (!a.ProcessCreationTime) return -1;
+				if (!b.ProcessCreationTime) return 1;
+				return new Date(a.ProcessCreationTime) - new Date(b.ProcessCreationTime);
+			});
+
+			console.debug("getFilteredData: result", sorted);
+			return sorted;
+		};
+
+		this.processTree = new ProcessTree(treeContainer, options);
 
 		// Add event listeners for navigation buttons
 		layout.querySelector("#left-button").addEventListener("click", () => {
@@ -102,22 +106,25 @@ export default {
 		});
 
 		model.on("change:events", () => {
-			this.processTree.destroy();
-			this.processTree = new ProcessTree(treeContainer, options);
-			this.processTree.initialize(model.get("events"), { identifier: '<root>' });
+			this.processTree.initialize(getFilteredData(), { identifier: '<root>' });
+		});
+
+		model.on("change:_start_date", () => {
+			this.processTree.initialize(getFilteredData(), { identifier: '<root>' });
+		});
+
+		model.on("change:_end_date", () => {
+			this.processTree.initialize(getFilteredData(), { identifier: '<root>' });
 		});
 
 		requestAnimationFrame(() => {
-			this.processTree.initialize(model.get("events"), { identifier: '<root>' });
+			this.processTree.initialize(getFilteredData(), { identifier: '<root>' });
 		});
 	},
 
 	destroy() {
 		if (this.processTree) {
 			this.processTree.destroy();
-		}
-		if (this.timeChart) {
-			this.timeChart.remove();
 		}
 	}
 };

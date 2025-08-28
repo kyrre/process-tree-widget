@@ -17,7 +17,7 @@ with app.setup:
     from ibis import _
     from datetime import datetime
 
-    from process_tree_widget import ProcessTreeWidget
+    from process_tree_widget import ProcessTreeWidget, TimeFilterWidget
     from process_tree_widget.tree import Process, ProcessTree
     from utils import prepare_mde_data, prepare_volatility_data
 
@@ -101,13 +101,38 @@ def _(tree):
 
 
 @app.cell
+def _(process_creation_events):
+    process_creation_events
+    return
+
+
+@app.cell
 def _(dependentree_format):
-    widget = mo.ui.anywidget(ProcessTreeWidget(events=dependentree_format))
+    u = mo.ui.anywidget(TimeFilterWidget(events=dependentree_format))
+    u
+    return (u,)
+
+
+@app.cell
+def _(u):
+    [u.start_date, u.end_date]
+    return
+
+
+@app.cell
+def _(dependentree_format, u):
+    widget = mo.ui.anywidget(
+        ProcessTreeWidget(
+            events=dependentree_format, 
+            start_date=u.start_date,
+            end_date=u.end_date
+        )
+    )
     widget
     return (widget,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(process_creation_events, widget):
     # this query displays the child processes for the node that is selected in the widget above
     (
@@ -120,6 +145,12 @@ def _(process_creation_events, widget):
 
 @app.cell
 def _():
+    return
+
+
+@app.cell
+def _(process_creation_events):
+    process_creation_events
     return
 
 
