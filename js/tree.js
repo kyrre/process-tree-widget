@@ -2,6 +2,13 @@ import DependenTree from "https://esm.sh/gh/kyrre/dependentree@dev";
 import * as d3 from "d3";
 
 export class ProcessTree {
+    setOptions(options) {
+        this.options = {
+            ...this.options,
+            ...options
+        };
+        return this;
+    }
     constructor(container, options = {}) {
         this.container = container;
         this.currentNode = null;
@@ -47,11 +54,15 @@ export class ProcessTree {
         };
     }
 
-    initialize(data, process) {
+    initialize(data, process_id) {
+
+
+        console.log("process_id", process_id);
+
         this.data = data;
-        this.currentNode = data.some(item => item._name === process['identifier'])
-            ? process['identifier']
-            : this.data[0]?._name;
+        // Find node by process_id
+        let selectedNode = data.find(d => d.ProcessId === process_id);
+        this.currentNode = this.currentNode ? this.currentNode : data[0]?._name;
 
         const expandedNodes = new Set();
         if (this.tree) {
@@ -71,15 +82,14 @@ export class ProcessTree {
             container.innerHTML = '';
         }
 
-        this.options.updat = (node) => {
-            this.tree.selectedNode = node; // Dynamically set selectedNode
-            console.log(node)
-            this.currentNode = node._name; // Keep currentNode in sync
-        };
-
         this.options.contextMenuClick = (event, d) => this.handleContextMenu(event, d);
         this.tree = new DependenTree(this.container, this.options);
         this.tree.addEntities(structuredClone(this.data));
+
+        console.log("setting selected node", selectedNode)
+        this.tree.selectedNode = selectedNode;
+
+
         this.tree.setTree(this.currentNode, "downstream");
 
         if (this.options.enableZoom) {

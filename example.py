@@ -17,7 +17,7 @@ with app.setup:
     from ibis import _
     from datetime import datetime
 
-    from process_tree_widget import ProcessTreeWidget, TimeFilterWidget
+    from process_tree_widget import ProcessTreeWidget
     from process_tree_widget.tree import Process, ProcessTree
     from utils import prepare_mde_data, prepare_volatility_data
 
@@ -70,9 +70,9 @@ def _():
 def _(pstree):
     process_creation_events = (
         prepare_volatility_data(pstree)
-            .mutate(Timestamp = _.CreateTime)
-            .order_by(_.CreateTime)
-            .filter(~_.ActingProcessFilename.isnull())
+        .mutate(Timestamp=_.CreateTime)
+        .order_by(_.CreateTime)
+        .filter(~_.ActingProcessFilename.isnull())
     )
 
     process_creation_events
@@ -86,7 +86,6 @@ def _():
 
 @app.cell
 def _(process_creation_events):
-
     # convert the dataframe to a python list of dicts
     _events = process_creation_events.to_pyarrow().to_pylist()
     tree = ProcessTree(_events)
@@ -101,56 +100,27 @@ def _(tree):
 
 
 @app.cell
-def _(process_creation_events):
-    process_creation_events
-    return
-
-
-@app.cell
 def _(dependentree_format):
-    u = mo.ui.anywidget(TimeFilterWidget(events=dependentree_format))
-    u
-    return (u,)
-
-
-@app.cell
-def _(u):
-    [u.start_date, u.end_date]
-    return
-
-
-@app.cell
-def _(dependentree_format, u):
-    widget = mo.ui.anywidget(
-        ProcessTreeWidget(
-            events=dependentree_format, 
-            start_date=u.start_date,
-            end_date=u.end_date
-        )
-    )
+    widget = mo.ui.anywidget(ProcessTreeWidget(events=dependentree_format))
     widget
     return (widget,)
+
+
+@app.cell
+def _(widget):
+    widget.process_id
+    return
 
 
 @app.cell(hide_code=True)
 def _(process_creation_events, widget):
     # this query displays the child processes for the node that is selected in the widget above
-    (
-        process_creation_events.filter(
-            _.ActingProcessId == widget.process_id
-        )
-    ).execute()
+    (process_creation_events.filter(_.ActingProcessId == widget.process_id)).execute()
     return
 
 
 @app.cell
 def _():
-    return
-
-
-@app.cell
-def _(process_creation_events):
-    process_creation_events
     return
 
 

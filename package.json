@@ -1,7 +1,7 @@
 {
 	"scripts": {
 		"dev": "npm run build -- --sourcemap=inline --watch",
-		"build": "esbuild js/widget.js js/timefilter_widget.js --minify --format=esm --bundle --outdir=src/process_tree_widget/static"
+		"build": "esbuild js/widget.js --minify --format=esm --bundle --outdir=src/process_tree_widget/static"
 	},
 	"dependencies": {
 		"@observablehq/plot": "^0.6.17",
