@@ -57,7 +57,6 @@ export class ProcessTree {
     initialize(data, process_id) {
 
 
-        console.log("process_id", process_id);
 
         this.data = data;
         // Find node by process_id
@@ -86,7 +85,6 @@ export class ProcessTree {
         this.tree = new DependenTree(this.container, this.options);
         this.tree.addEntities(structuredClone(this.data));
 
-        console.log("setting selected node", selectedNode)
         this.tree.selectedNode = selectedNode;
 
 

@@ -1,17 +1,4 @@
-// Utility function to get ProcessId for a given currentNode and data
-function getCurrentNodePid(data, currentNode) {
-	if (!currentNode) return undefined;
-	// If currentNode is a string (_name), find the event
-	if (typeof currentNode === "string") {
-		const nodeEvent = data.find(d => d._name === currentNode);
-		return nodeEvent ? nodeEvent.ProcessId : undefined;
-	}
-	// If currentNode is an object with ProcessId
-	if (typeof currentNode === "object" && currentNode.ProcessId !== undefined) {
-		return currentNode.ProcessId;
-	}
-	return undefined;
-}
+import { getCurrentNodePid, filterAndSortData } from "./utils.js";
 import { ProcessTree } from "./tree.js";
 import { html } from "htl";
 import { timeProcessBarplot } from "./timefilter.js"
@@ -35,76 +22,40 @@ function createTimeProcessBarplot(model) {
 	});
 }
 
-// Filter and sort data based on selected date range
-function filterAndSortData(data, startDate, endDate) {
-	// Ensure startDate and endDate are Date objects
-	const start = startDate ? new Date(startDate) : null;
-	const end = endDate ? new Date(endDate) : null;
-
-
-
-	let filtered = data
-		.filter(d => {
-
-			if (d.ProcessCreationTime === undefined) return true;
-
-			// If no time filter is set, keep everything
-			if (!start && !end) return true;
-
-			const date = new Date(d.ProcessCreationTime);
-
-			// Keep the node if:
-			// 1. It has children AND was created before start date (it's a parent that existed before our window)
-			// 2. OR it's within our time window
-			const hasChildren = data.some(child => child._deps?.includes(d._name));
-			const isBeforeStartDate = start ? date < start : false;
-
-			let keep = (hasChildren && isBeforeStartDate) || (date >= start && date <= end);
-			return keep;
-		})
-		.sort((a, b) => {
-			if (!a.ProcessCreationTime) return -1;
-			if (!b.ProcessCreationTime) return 1;
-			return new Date(a.ProcessCreationTime) - new Date(b.ProcessCreationTime);
-		});
-
-
-	return filtered;
-}
+// filterAndSortData moved to utils.js
 
 function initializeProcessTree(processTree, model) {
-    let allEvents = filterAndSortData(
-        model.get("events"), 
-        model.get("_start_date"), 
-        model.get("_end_date")
-    );
+	let allEvents = filterAndSortData(
+		model.get("events"),
+		model.get("_start_date"),
+		model.get("_end_date")
+	);
 
-    let process_id = model.get("process_id");
-    let processEvent = allEvents.find(d => d.ProcessId == process_id);
+	let process_id = model.get("process_id");
+	let processEvent = allEvents.find(d => d.ProcessId == process_id);
 
-    console.log("[DEBUG] Initial process_id from model:", process_id);
-    console.log("[DEBUG] Found processEvent:", processEvent);
-    console.log("[DEBUG] allEvents count:", allEvents.length);
+	// Debug logs removed
 
-		// If processEvent or process_id is undefined, set process_id using util function, else fallback to first event's ProcessId
-		if ((typeof processEvent === "undefined" || typeof process_id === "undefined") && allEvents.length > 0) {
-			process_id = getCurrentNodePid(allEvents, processTree.currentNode);
-			if (typeof process_id !== "undefined") {
-				console.log("[DEBUG] Fallback: using getCurrentNodePid:", process_id);
-			}
-			// If still undefined, use the first event's ProcessId
-			if (typeof process_id === "undefined") {
-				process_id = allEvents[0].ProcessId;
-				console.log("[DEBUG] Fallback: using first event's ProcessId:", process_id);
-			}
-			model.set("process_id", process_id);
-			model.save_changes();
+	// If processEvent or process_id is undefined, set process_id using util function, else fallback to first event's ProcessId
+	// TODO: when closest-ancestor helper is implemented, try it before falling back to first event.
+	if ((typeof processEvent === "undefined" || typeof process_id === "undefined") && allEvents.length > 0) {
+		process_id = getCurrentNodePid(allEvents, processTree.currentNode);
+		if (typeof process_id !== "undefined") {
+			// derived from current node
 		}
+		// If still undefined, use the first event's ProcessId
+		if (typeof process_id === "undefined") {
+			process_id = allEvents[1].ProcessId;
+			// fallback to first event
+		}
+		model.set("process_id", process_id);
+		model.save_changes();
+	}
 
-    processTree.initialize(allEvents, process_id);
+	processTree.initialize(allEvents, process_id);
 
-    // After initialization, check currentNode
-    console.log("[DEBUG] processTree.currentNode after init:", processTree.currentNode);
+	// After initialization, check currentNode
+	// currentNode set after init
 }
 
 
@@ -190,7 +141,6 @@ export default {
 		});
 
 		model.on("change:events", () => {
-			console.debug("model.on: change:events");
 
 			if (this.timeChart) {
 				this.timeChart.remove();
@@ -203,12 +153,10 @@ export default {
 		});
 
 		model.on("change:_start_date", () => {
-			console.debug("model.on: change:_start_date triggered", model.get("_start_date"));
 			initializeProcessTree(this.processTree, model);
 		});
 
 		model.on("change:_end_date", () => {
-			console.debug("model.on: change:_end_date triggered", model.get("_end_date"));
 			initializeProcessTree(this.processTree, model);
 		});
 

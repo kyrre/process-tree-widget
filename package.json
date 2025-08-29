@@ -8,7 +8,9 @@
 		"@observablehq/runtime": "^6.0.0",
 		"@observablehq/stdlib": "^5.8.8",
 		"d3": "^7.9.0",
-		"htl": "github:observablehq/htl"
+		"graphology": "^0.26.0",
+		"htl": "github:observablehq/htl",
+		"sigma": "^3.0.2"
 	},
 	"devDependencies": {
 		"esbuild": "^0.24.0"
