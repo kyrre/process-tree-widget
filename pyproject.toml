@@ -4,8 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "process_tree_widget"
-version = "0.0.1"
-dependencies = ["anywidget", "treelib", "pydantic"]
+version = "0.0.2"
+dependencies = [
+    "anywidget",
+    "treelib",
+    "pydantic",
+]
 readme = "README.md"
 
 [dependency-groups]
@@ -15,6 +19,7 @@ dev = [
     "ruff",
     "mypy",
     "marimo",
+    "openai>=1.102.0",
     "ibis-framework[duckdb,deltalake]",
     "databricks-connect",
 ]

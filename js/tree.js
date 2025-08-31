@@ -56,8 +56,6 @@ export class ProcessTree {
 
     initialize(data, process_id) {
 
-
-
         this.data = data;
         // Find node by process_id
         let selectedNode = data.find(d => d.ProcessId === process_id);
@@ -165,7 +163,7 @@ export class ProcessTree {
         });
     }
 
-      // Navigation methods
+    // Navigation methods
     goToParent() {
         if (this.currentNode === this.data[0]._name) return;
 
@@ -208,5 +206,5 @@ export class ProcessTree {
             document.querySelector(this.container).innerHTML = "";
         }
     }
-    
+
 }

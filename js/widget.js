@@ -6,7 +6,7 @@ import { timeProcessBarplot } from "./timefilter.js"
 function createTimeProcessBarplot(model) {
 	return timeProcessBarplot(model.get("events"), {
 		width: 400,
-		height: 250,
+		height: 150,
 		startDate: model.get("_start_date") ? new Date(model.get("_start_date")) : null,
 		endDate: model.get("_end_date") ? new Date(model.get("_end_date")) : null,
 		setDateRange: (start, end) => {
@@ -27,8 +27,8 @@ function createTimeProcessBarplot(model) {
 function initializeProcessTree(processTree, model) {
 	let allEvents = filterAndSortData(
 		model.get("events"),
-		model.get("_start_date"),
-		model.get("_end_date")
+		model.get("show_timefilter") ? model.get("_start_date") : null,
+		model.get("show_timefilter") ? model.get("_end_date") : null
 	);
 
 	let process_id = model.get("process_id");
@@ -59,118 +59,100 @@ function initializeProcessTree(processTree, model) {
 }
 
 
-
 export default {
-	initialize({ model }) {
-		console.info('initialize called');
-		return () => {
-			console.info("model cleanup :>");
-		};
-	},
+  render({ model, el }) {
+    let layout, timeChart, processTree;
 
+    layout = html`
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        <div style="display:flex;justify-content:flex-start;align-items:center;gap:5px;">
+          <button title="Go to parent"   onclick=${() => processTree?.goToParent()}>&larr;</button>
+          <button title="Go to root"     onclick=${() => processTree?.goToRoot()}>⌂</button>
+          <button title="Go to selected" onclick=${() => processTree?.goToSelected()}>&rarr;</button>
+        </div>
+        ${model.get("show_timefilter")
+          ? html`<div style="display:flex;flex-direction:row;justify-content:flex-start;align-items:flex-start;gap:5px;margin-top:20px;">
+              <div id="timefilter-chart-container"></div>
+            </div>`
+          : null}
+        <div id="tree" style="flex:1;min-height:400px;padding:10px;display:flex;align-items:center;justify-content:center;"></div>
+      </div>
+    `;
+    el.replaceChildren(layout);
 
-	render({ model, el }) {
-		// Create a flexbox layout with timeProcessBarplot above the tree, right-aligned
-		const layout = html`
-			<div style="display: flex; flex-direction: column; gap: 5px;">
-				<div class="controls-container" style="display: flex; justify-content: flex-start; gap: 5px;">
-					<button id="left-button" title="Go to parent">&larr;</button>
-					<button id="home-button" title="Go to root">⌂</button>
-					<button id="right-button" title="Go to selected">&rarr;</button>
-				</div>
-				<div style="display: flex; flex-direction: row; justify-content: flex-start; align-items: flex-start; gap: 5px;">
-					<div id="timefilter-chart-container"></div>
-				</div>
-				<div id="tree" style="flex: 1; min-height: 400px; padding: 10px; display: flex; align-items: center; justify-content: center;"></div>
-			</div>
-		`;
+    if (model.get("show_timefilter")) {
+      const chartContainer = layout.querySelector("#timefilter-chart-container");
+      timeChart = createTimeProcessBarplot(model);
+      chartContainer.appendChild(timeChart);
+    }
 
-		// Append the layout to the root element
-		el.appendChild(layout);
+    const treeContainer = layout.querySelector("#tree");
+    processTree = new ProcessTree(treeContainer);
+    processTree.setOptions({
+      textStyleColor: "#506e86",
+      modifyEntityName: ({ ProcessName }) => ProcessName,
+  textClick: () => null,
+      selectedNodeStrokeColor: "#506e86",
+      selectedNodeColor: "#7b9fce",
+      tooltipStyleObj: {
+        'background-color': '#ffffff',
+        'opacity': '0.9',
+        'border-style': 'solid',
+        'border-width': '0.5px',
+        'border-color': '#cccccc',
+        'border-radius': '3px',
+        'padding': '10px',
+        'box-shadow': '0 2px 4px rgba(0,0,0,0.1)'
+      },
+      animationDuration: 300,
+      parentNodeTextOrientation: 'right',
+      childNodeTextOrientation: 'right',
+      nodeClick: (node) => {
+        model.set("process_id", node.ProcessId);
+        model.save_changes();
+        processTree.tree.selectedNode = node;
+      }
+    });
 
-		// Add timeProcessBarplot to the chart container
-		const chartContainer = layout.querySelector("#timefilter-chart-container");
-		this.timeChart = createTimeProcessBarplot(model);
-		chartContainer.appendChild(this.timeChart);
+    // --- model listeners ---
+    const onEventsChange = () => {
+      if (model.get("show_timefilter")) {
+        if (timeChart) timeChart.remove();
+        const chartContainer = layout.querySelector("#timefilter-chart-container");
+        if (chartContainer) {
+          timeChart = createTimeProcessBarplot(model);
+          chartContainer.appendChild(timeChart);
+        }
+      }
+      initializeProcessTree(processTree, model);
+    };
+    model.on("change:events", onEventsChange);
 
-		// Initialize the process tree
-		const treeContainer = layout.querySelector("#tree");
-		const options = {
-			textStyleColor: "#506e86",
-			modifyEntityName: ({ ProcessName }) => ProcessName,
-			textClick: () => null,
-			selectedNodeStrokeColor: "#506e86", // Light mode color
-			selectedNodeColor: "#7b9fce", // Light mode color
-			tooltipStyleObj: {
-				'background-color': '#ffffff', // Light mode background
-				'opacity': '0.9',
-				'border-style': 'solid',
-				'border-width': '0.5px',
-				'border-color': '#cccccc', // Light mode border
-				'border-radius': '3px',
-				'padding': '10px',
-				'box-shadow': '0 2px 4px rgba(0, 0, 0, 0.1)' // Light mode shadow
-			},
-			animationDuration: 300,
-			parentNodeTextOrientation: "right",
-			childNodeTextOrientation: "right",
-		};
+    const onDateChange = () => initializeProcessTree(processTree, model);
+    model.on("change:_start_date", onDateChange);
+    model.on("change:_end_date", onDateChange);
 
+    const onShowTimefilterChange = () => {
+      if (!model.get("show_timefilter") && timeChart) {
+        timeChart.remove();
+        timeChart = null;
+      }
+      initializeProcessTree(processTree, model);
+    };
+    model.on("change:show_timefilter", onShowTimefilterChange);
 
-		this.processTree = new ProcessTree(treeContainer);
-		this.processTree.setOptions({
-			...options,
-			nodeClick: (node) => {
-				model.set("process_id", node.ProcessId);
-				model.save_changes();
-				this.processTree.tree.selectedNode = node;
-			}
-		});
+    requestAnimationFrame(() => initializeProcessTree(processTree, model));
 
-		// Add event listeners for navigation buttons
-		layout.querySelector("#left-button").addEventListener("click", () => {
-			this.processTree.goToParent();
-		});
-
-		layout.querySelector("#home-button").addEventListener("click", () => {
-			this.processTree.goToRoot();
-		});
-
-		layout.querySelector("#right-button").addEventListener("click", () => {
-			this.processTree.goToSelected();
-		});
-
-		model.on("change:events", () => {
-
-			if (this.timeChart) {
-				this.timeChart.remove();
-			}
-			const chartContainer = layout.querySelector("#timefilter-chart-container");
-			this.timeChart = createTimeProcessBarplot(model);
-			chartContainer.appendChild(this.timeChart);
-
-			initializeProcessTree(this.processTree, model);
-		});
-
-		model.on("change:_start_date", () => {
-			initializeProcessTree(this.processTree, model);
-		});
-
-		model.on("change:_end_date", () => {
-			initializeProcessTree(this.processTree, model);
-		});
-
-		requestAnimationFrame(() => {
-			initializeProcessTree(this.processTree, model);
-		});
-	},
-
-	destroy() {
-		if (this.timeChart) {
-			this.timeChart.remove();
-		}
-		if (this.processTree) {
-			this.processTree.destroy();
-		}
-	}
+    // --- cleanup ---
+    return () => {
+      model.off("change:events", onEventsChange);
+      model.off("change:_start_date", onDateChange);
+      model.off("change:_end_date", onDateChange);
+      model.off("change:show_timefilter", onShowTimefilterChange);
+      try { timeChart?.remove(); } catch {}
+      try { processTree?.destroy?.(); } catch {}
+      el.innerHTML = "";
+      layout = timeChart = processTree = null;
+    };
+  }
 };

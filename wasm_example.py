@@ -45,11 +45,11 @@ async def _(is_wasm):
     from ibis import _
 
     from process_tree_widget.tree import Process, ProcessTree
-    from process_tree_widget import ProcessTreeWidget
+    from process_tree_widget import ProcessTree
     return (
         Process,
         ProcessTree,
-        ProcessTreeWidget,
+        ProcessTree,
         current_url,
         ibis,
         js,
