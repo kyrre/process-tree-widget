@@ -139,26 +139,28 @@ class ProcessTree:
                     )
 
     def insert_process(self, process: Process) -> None:
+        # Only insert parent if not missing
+        if process.parent_process_id != Process.MISSING_PROCESS_ID:
+            parent_process = Process(
+                target_process_id=process.parent_process_id,
+                target_process_filename=process.parent_process_filename,
+                target_process_creation_time=process.parent_process_creation_time,
+            )
+            self.insert_or_update(parent_process)
 
-        parent_process = Process(
-            target_process_id=process.parent_process_id,
-            target_process_filename=process.parent_process_filename,
-            target_process_creation_time=process.parent_process_creation_time,
-        )
+        # Only insert acting if not missing
+        if process.acting_process_id != Process.MISSING_PROCESS_ID:
+            acting_process = Process(
+                target_process_id=process.acting_process_id,
+                target_process_filename=process.acting_process_filename,
+                target_process_creation_time=process.acting_process_creation_time,
+                acting_process_id=process.parent_process_id,
+                acting_process_filename=process.parent_process_filename,
+                acting_process_creation_time=process.parent_process_creation_time,
+            )
+            self.insert_or_update(acting_process)
 
-        acting_process = Process(
-            target_process_id=process.acting_process_id,
-            target_process_filename=process.acting_process_filename,
-            target_process_creation_time=process.acting_process_creation_time,
-            acting_process_id=process.parent_process_id,
-            acting_process_filename=process.parent_process_filename,
-            acting_process_creation_time=process.parent_process_creation_time,
-        )
-
-        self.insert_or_update(parent_process)
-        self.insert_or_update(acting_process)
         self.insert_or_update(process)
-
 
     def get_all_pids(self) -> Set[int]:
         """

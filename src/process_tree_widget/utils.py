@@ -1,3 +1,6 @@
+import ibis
+
+from datetime import datetime
 from ibis import _
 
 
@@ -84,19 +87,21 @@ def prepare_volatility_data(_events):
         )
     )
 
-    # Join parent with acting
+    # Join parent with acting using a left join
     acting = (
         parent.join(
             acting,
-            [acting.ActingVolParentId == parent.ParentVolId]  # Corrected join condition
+            [acting.ActingVolParentId == parent.ParentVolId],
+            how="right"
         )
     )
 
-    # Join the result with the events
+    # Join the result with the events using a left join
     result = (
         _events.join(
             acting,
-            [_events._vol_parent_id == acting.ActingVolId]  # Corrected join condition
+            [_events._vol_parent_id == acting.ActingVolId],
+            how="left"
         )
         .mutate(
             TargetProcessId=_events.PID,
@@ -104,7 +109,14 @@ def prepare_volatility_data(_events):
             TargetProcessCreationTime=_events.CreateTime,
             Timestamp=_events.CreateTime,
         )
-        .filter(~_.ActingProcessFilename.isnull())
+        .mutate(
+            ActingProcessId=ibis.coalesce(_.ActingProcessId, -1),
+            ActingProcessFilename=ibis.coalesce(_.ActingProcessFilename, "MISSING"),
+            ActingProcessCreationTime=ibis.coalesce(_.ActingProcessCreationTime, datetime(1970, 1, 1)),
+            ParentProcessId=ibis.coalesce(_.ParentProcessId, -1),
+            ParentProcessFilename=ibis.coalesce(_.ParentProcessFilename, "MISSING"),
+            ParentProcessCreationTime=ibis.coalesce(_.ParentProcessCreationTime, datetime(1970, 1, 1)),
+        )
         .order_by(_.CreateTime)
     )
 

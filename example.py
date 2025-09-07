@@ -249,8 +249,14 @@ def _(pstree):
 
 
 @app.cell
+def _(pstree):
+    pstree
+    return
+
+
+@app.cell
 def _(widget):
-    widget.process_id
+    widget.events
     return
 
 
