@@ -15,6 +15,7 @@ export class ProcessTree {
         this.tree = null;
         this.data = null;
         this.zoom = null;
+        this.storageKey = null;
 
         this.options = {
             containerWidthMultiplier: 0.75,
@@ -54,22 +55,59 @@ export class ProcessTree {
         };
     }
 
+    // Walk both visible (children) and collapsed (_children) nodes
+    _traverseAll(node, callback) {
+        callback(node);
+        (node.children || []).forEach(c => this._traverseAll(c, callback));
+        (node._children || []).forEach(c => this._traverseAll(c, callback));
+    }
+
+    _saveState() {
+        if (!this.storageKey || !this.tree?.root) return;
+        const expandedNodes = [];
+        this._traverseAll(this.tree.root, node => {
+            if (node.children) expandedNodes.push(node.data._name);
+        });
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify({
+                currentNode: this.currentNode,
+                expandedNodes,
+            }));
+        } catch {}
+    }
+
+    _loadState() {
+        if (!this.storageKey) return null;
+        try {
+            const saved = localStorage.getItem(this.storageKey);
+            return saved ? JSON.parse(saved) : null;
+        } catch { return null; }
+    }
+
     initialize(data, process_id) {
-
         this.data = data;
-        // Find node by process_id
-        let selectedNode = data.find(d => d.ProcessId === process_id);
-        this.currentNode = this.currentNode ? this.currentNode : data[0]?._name;
 
+        let selectedNode = data.find(d => d.ProcessId === process_id);
+
+        // Collect expanded nodes from live tree; fall back to localStorage on
+        // first call (fresh widget creation after recreation)
         const expandedNodes = new Set();
+        if (this.tree?.root) {
+            this._traverseAll(this.tree.root, node => {
+                if (node.children) expandedNodes.add(node.data._name);
+            });
+            this.currentNode = this.currentNode || data[0]?._name;
+        } else {
+            const saved = this._loadState();
+            if (saved) {
+                saved.expandedNodes.forEach(n => expandedNodes.add(n));
+                this.currentNode = saved.currentNode || data[0]?._name;
+            } else {
+                this.currentNode = data[0]?._name;
+            }
+        }
+
         if (this.tree) {
-            const collectExpandedNodes = (node) => {
-                if (node.children) {
-                    expandedNodes.add(node.data._name);
-                    node.children.forEach(collectExpandedNodes);
-                }
-            };
-            collectExpandedNodes(this.tree.root);
             this.tree.removeTree();
             this.tree = null;
         }
@@ -79,30 +117,39 @@ export class ProcessTree {
             container.innerHTML = '';
         }
 
+        // Fall back if currentNode no longer exists in filtered data
+        if (!data.find(d => d._name === this.currentNode)) {
+            this.currentNode = data[0]?._name;
+        }
+
         this.options.contextMenuClick = (event, d) => this.handleContextMenu(event, d);
         this.tree = new DependenTree(this.container, this.options);
         this.tree.addEntities(structuredClone(this.data));
-
         this.tree.selectedNode = selectedNode;
-
-
         this.tree.setTree(this.currentNode, "downstream");
 
         if (this.options.enableZoom) {
             this.initializeZoom();
         }
 
+        // Restore expanded nodes. Must walk _children too because setTree calls
+        // collapseAll — after that, root.children is null and root.each() sees
+        // nothing. We expand a node first, then recurse into its newly-visible
+        // children, while also recursing into still-collapsed _children.
         const originalDuration = this.tree.options.animationDuration;
         this.tree.options.animationDuration = -10;
 
-        const findAndExpandNode = (node) => {
-            if (expandedNodes.has(node.data._name)) {
+        const restoreExpanded = (node) => {
+            if (expandedNodes.has(node.data._name) && node._children) {
                 this.tree.expandNode(node, 0);
             }
+            [...(node.children || []), ...(node._children || [])].forEach(restoreExpanded);
         };
-        this.tree.root.each(findAndExpandNode);
+        restoreExpanded(this.tree.root);
+
         this.tree.options.animationDuration = originalDuration;
 
+        this._saveState();
         return this;
     }
 
@@ -146,6 +193,7 @@ export class ProcessTree {
                 this.currentNode = d.data._name;
                 this.tree.setTree(d.data._name, 'downstream');
                 this.tree.svg.selectAll('.context-menu').remove();
+                this._saveState();
             });
 
         menu.append('div')
@@ -155,6 +203,7 @@ export class ProcessTree {
             .on('click', () => {
                 this.tree.expandNode(d);
                 this.tree.svg.selectAll('.context-menu').remove();
+                this._saveState();
             });
 
         this.tree.svg.on('click.context-menu', () => {
@@ -180,12 +229,14 @@ export class ProcessTree {
             this.tree.setTree(this.currentNode, 'downstream');
         }
 
-        return this.currentNode; // Return for Observable reactivity
+        this._saveState();
+        return this.currentNode;
     }
 
     goToRoot() {
         this.currentNode = this.data[0]._name;
         this.tree.setTree(this.currentNode, 'downstream');
+        this._saveState();
         return this.currentNode;
     }
 
@@ -193,6 +244,7 @@ export class ProcessTree {
         if (!this.tree.selectedNode) return this.currentNode;
         this.currentNode = this.tree.selectedNode._name;
         this.tree.setTree(this.currentNode, 'downstream');
+        this._saveState();
         return this.currentNode;
     }
 
