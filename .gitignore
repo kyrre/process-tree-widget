@@ -10,3 +10,7 @@ __pycache__
 src/process_tree_widget/static
 
 output_dir
+
+# Claude Code
+.claude/
+skills-lock.json
