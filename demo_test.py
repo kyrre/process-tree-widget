@@ -9,53 +9,35 @@ def _():
     import marimo as mo
     import ibis
     from process_tree_widget import ProcessTreeWidget
+    from process_tree_widget.timefilter import TimeFilterWidget
 
-    return ProcessTreeWidget, ibis, mo
+    return ProcessTreeWidget, TimeFilterWidget, ibis, mo
 
 
 @app.cell(hide_code=True)
 def _(ibis, mo):
-    pstree = ibis.read_parquet("pstree.parquet")
-    mo.ui.table(pstree.head(5), selection=None)
+    pstree = ibis.read_parquet("public/demo.parquet")
+    mo.ui.table(pstree, selection=None)
     return (pstree,)
 
 
 @app.cell(hide_code=True)
-def _(ProcessTreeWidget, mo, pstree, tf):
-    widget = (
-        mo.ui.anywidget(ProcessTreeWidget(
-            events=pstree,
-            source="volatility",
-            start_date=tf.value["start_date"],
-            end_date=tf.value["end_date"],
-        ))
-    )
+def _(ProcessTreeWidget, mo, pstree):
+    widget = mo.ui.anywidget(ProcessTreeWidget(events=pstree, source="mde"))
     widget
-    return
+    return (widget,)
 
 
-@app.cell(hide_code=True)
-def _(mo, pstree):
-    import importlib, process_tree_widget.timefilter as _tf_mod
-
-    importlib.reload(_tf_mod)
-    from process_tree_widget.timefilter import TimeFilterWidget
-    from process_tree_widget.utils import prepare_events
-
-    normalized_df = prepare_events(pstree, "volatility").to_pandas()
-    tf = mo.ui.anywidget(TimeFilterWidget(normalized_df))
+@app.cell
+def _(TimeFilterWidget, mo, pstree):
+    tf = mo.ui.anywidget(TimeFilterWidget(pstree, source="mde"))
     tf
     return (tf,)
 
 
 @app.cell
-def _(tf):
-    tf.value
-    return
-
-
-@app.cell
-def _():
+def _(tf, widget):
+    widget.widget.date_range = tf.value
     return
 
 

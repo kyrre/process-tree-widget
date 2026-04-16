@@ -1,36 +1,51 @@
-# A process tree visualization widget
+# process-tree-widget
 
-This project contains the source code for a interactive process tree visualization widget. 
-Please refer to [this blog
-post](https://www.linkedin.com/posts/anja-olsen-5a2643b9_visualizing-process-trees-with-marimo-and-activity-7301269407752683522-0kp5/?utm_source=share&utm_medium=member_desktop&rcm=ACoAADhsJbUBGCHud9Vayji0NXbs1mZ7yzVyygM)
-for all the details.
+An interactive process tree visualization widget for security and forensics analysis, built for [marimo](https://marimo.io) notebooks using the [anywidget](https://anywidget.dev) framework.
 
+Please refer to [this blog post](https://www.linkedin.com/posts/anja-olsen-5a2643b9_visualizing-process-trees-with-marimo-and-activity-7301269407752683522-0kp5/?utm_source=share&utm_medium=member_desktop&rcm=ACoAADhsJbUBGCHud9Vayji0NXbs1mZ7yzVyygM) for background and context.
 
 ![Process Tree Visualization](image.png)
 
+## Overview
 
-## Instructions
+The widget ingests OS process telemetry from two sources:
 
-For the Python dependencies:
+- **MDE (Microsoft Defender for Endpoint)** `ProcessCreated` events
+- **Volatility** `pstree` memory forensics output
 
-1. `uv venv --python 3.12`
-2. `uv sync`
-3. `source .venv/bin/activate`
+Both are normalized to a common [ASIM](https://learn.microsoft.com/en-us/azure/sentinel/normalization) schema, assembled into a tree structure, and rendered as an interactive D3-backed visualization with expand/collapse, zoom, right-click context menu, and an optional time-range filter.
 
-In order to build the JavaScript side of the project:
+### JavaScript rendering
 
-1. `npm install`
-2. `npm run dev`
+The widget uses a vendored copy of [DependenTree](https://github.com/square/dependentree) (located in `js/dependentree/`) for the D3 tree layout, bundled directly by esbuild — no CDN fetch at runtime.
 
-Now you can use `marimo` to play around with the included demo notebook:
+## Development setup
 
-`marimo edit example.py`
+**Python:**
 
+```bash
+uv venv --python 3.12
+uv sync
+source .venv/bin/activate
+```
 
-In order to build the package simply: `uv build`
+**JavaScript:**
 
-and for the WebAssembly notebook:
+```bash
+npm install
+npm run dev   # watches js/ (including js/dependentree/) and rebuilds on change
+```
 
-1. `uv build`
-2. `cp dist/* public`
-3. `marimo export html-wasm wasm_example.py -o output_dir --mode edit`
+**Demo notebook:**
+
+```bash
+marimo edit example.py
+```
+
+## Build commands
+
+```bash
+npm run build    # bundle js/ → src/process_tree_widget/static/ (esbuild, ESM, minified)
+npm run dev      # same with inline sourcemaps + watch mode
+uv build         # full Python package build (triggers npm run build via hatch-jupyter-builder)
+```
