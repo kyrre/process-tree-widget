@@ -22,17 +22,17 @@ export function filterAndSortData(data, startDate, endDate) {
 
 	return data
 		.filter(d => {
-			if (d.ProcessCreationTime === undefined) return true; // keep if no time metadata
+			if (d.TargetProcessCreationTime === undefined) return true; // keep if no time metadata
 			if (!start && !end) return true; // no filtering applied
 
-			const date = new Date(d.ProcessCreationTime);
+			const date = new Date(d.TargetProcessCreationTime);
 			const hasChildren = data.some(child => child._deps?.includes(d._name));
 			const isBeforeStartDate = start ? date < start : false;
 			return (hasChildren && isBeforeStartDate) || (date >= start && date <= end);
 		})
 		.sort((a, b) => {
-			if (!a.ProcessCreationTime) return -1;
-			if (!b.ProcessCreationTime) return 1;
-			return new Date(a.ProcessCreationTime) - new Date(b.ProcessCreationTime);
+			if (!a.TargetProcessCreationTime) return -1;
+			if (!b.TargetProcessCreationTime) return 1;
+			return new Date(a.TargetProcessCreationTime) - new Date(b.TargetProcessCreationTime);
 		});
 }
