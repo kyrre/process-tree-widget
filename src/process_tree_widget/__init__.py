@@ -2,6 +2,7 @@ import importlib.metadata
 import pathlib
 
 import anywidget
+import narwhals as nw
 import traitlets
 from process_tree_widget.tree import ProcessTree
 from process_tree_widget.utils import prepare_events
@@ -13,40 +14,78 @@ except importlib.metadata.PackageNotFoundError:
 
 
 class ProcessTreeWidget(anywidget.AnyWidget):
-    _esm = pathlib.Path(__file__).parent / "static" / "widget.js"
+    _esm = pathlib.Path(__file__).parent / "static" / "process-tree" / "widget.js"
 
     process_id = traitlets.Int(-1).tag(sync=True)
     events: traitlets.List = traitlets.List([]).tag(sync=True)
     _start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     _end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
-    show_timefilter = traitlets.Bool(True).tag(sync=True)
 
     def __init__(
         self,
         events,
-        start_date=None,
-        end_date=None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         source: str | None = None,
-        show_timefilter: bool = True,
+        impute_date_times: bool = True,
         **kwargs,
     ):
         """Initialize the widget.
 
-        events can be either:
-        - A pre-built dependentree list[dict]
-        - An ibis table (detected via to_pyarrow()) with process creation events.
+        ``events`` can be one of:
 
-        If an ibis table is provided and `source` is supplied ("mde" or "volatility"),
-        the table is first normalized via utils.prepare_events (if available) before
-        constructing the dependentree format expected by the frontend.
+        - An ibis table + ``source`` ("mde" or "volatility"): normalized via
+          ``prepare_events`` before tree construction.
+        - Any narwhals-compatible dataframe (pandas, polars, …) already in ASIM
+          format (output of ``prepare_events``): converted directly.
+        - A pre-built dependentree ``list[dict]``: used as-is.
+
+        ``start_date`` / ``end_date`` are ISO-format strings.  Pass
+        ``tf.value["start_date"]`` / ``tf.value["end_date"]`` directly from a
+        :class:`~process_tree_widget.timefilter.TimeFilterWidget` to wire
+        time-based filtering.
+
+        ``impute_date_times`` controls whether null creation times are filled
+        with the earliest non-null timestamp in the dataset (default: True).
+        Imputed nodes carry ``ImputedCreationTime=True`` for downstream styling.
         """
         super().__init__(**kwargs)
 
-        raw_list = prepare_events(events, source).to_pyarrow().to_pylist()
-        tree = ProcessTree(raw_list)
-        processed_events = tree.create_dependentree_format()
+        if source is not None:
+            prepared = prepare_events(events, source, impute_date_times=impute_date_times)
+            if isinstance(prepared, nw.LazyFrame):
+                prepared = prepared.collect()
+            raw_list = prepared.to_arrow().to_pylist()
+        elif isinstance(events, list):
+            raw_list = events
+        else:
+            raw_list = nw.from_native(events).to_arrow().to_pylist()
 
-        self.events = processed_events
-        self._start_date = start_date.isoformat() if start_date else None
-        self._end_date = end_date.isoformat() if end_date else None
-        self.show_timefilter = show_timefilter
+        tree = ProcessTree(raw_list)
+        self.events = tree.create_dependentree_format()
+
+        if start_date is None or end_date is None:
+            times = sorted(
+                e["TargetProcessCreationTime"]
+                for e in self.events
+                if e.get("TargetProcessCreationTime")
+            )
+            if times:
+                if start_date is None:
+                    t = times[0]
+                    start_date = t.isoformat() if hasattr(t, "isoformat") else str(t)
+                if end_date is None:
+                    t = times[-1]
+                    end_date = t.isoformat() if hasattr(t, "isoformat") else str(t)
+
+        self._start_date = start_date
+        self._end_date = end_date
+
+    @property
+    def date_range(self) -> dict:
+        return {"start_date": self._start_date, "end_date": self._end_date}
+
+    @date_range.setter
+    def date_range(self, value: dict) -> None:
+        self._start_date = value.get("start_date")
+        self._end_date = value.get("end_date")
