@@ -14,7 +14,9 @@ class TimeFilterWidget(anywidget.AnyWidget):
     start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
 
-    def __init__(self, events: object, source: str | None = None, **kwargs: object) -> None:
+    def __init__(
+        self, events: object, source: str | None = None, **kwargs: object
+    ) -> None:
         """Create a time-filter bar chart widget.
 
         Args:

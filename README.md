@@ -39,7 +39,9 @@ npm run dev   # watches js/ (including js/dependentree/) and rebuilds on change
 **Demo notebook:**
 
 ```bash
-marimo edit example.py
+marimo edit notebooks/demo_mde.py
+# or
+marimo edit notebooks/demo_vol.py
 ```
 
 ## Build commands

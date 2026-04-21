@@ -136,7 +136,6 @@ export function _contextClick(event, d, callback) {
 
 // Expand all children of a specified node
 export function expandNode(node, levelsOfNodes = 3) {
-  console.log(node)
   if (!node) { return; }
 
   if (node._children) {

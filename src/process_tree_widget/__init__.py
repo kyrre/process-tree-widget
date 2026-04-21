@@ -4,8 +4,11 @@ import pathlib
 import anywidget
 import narwhals as nw
 import traitlets
-from process_tree_widget.tree import ProcessTree
-from process_tree_widget.utils import prepare_events
+from process_tree_widget.timefilter import TimeFilterWidget as TimeFilterWidget
+from process_tree_widget.tree import ProcessTree as ProcessTree
+from process_tree_widget.utils import prepare_events as prepare_events
+
+__all__ = ["ProcessTreeWidget", "TimeFilterWidget", "ProcessTree", "prepare_events"]
 
 try:
     __version__ = importlib.metadata.version("process_tree_widget")
@@ -52,7 +55,9 @@ class ProcessTreeWidget(anywidget.AnyWidget):
         super().__init__(**kwargs)
 
         if source is not None:
-            prepared = prepare_events(events, source, impute_date_times=impute_date_times)
+            prepared = prepare_events(
+                events, source, impute_date_times=impute_date_times
+            )
             if isinstance(prepared, nw.LazyFrame):
                 prepared = prepared.collect()
             raw_list = prepared.to_arrow().to_pylist()

@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import narwhals as nw
+from narwhals.typing import IntoFrame
 
 
 def _compute_imputation_datetime(df: nw.DataFrame) -> datetime:
@@ -11,7 +12,11 @@ def _compute_imputation_datetime(df: nw.DataFrame) -> datetime:
     if isinstance(df, nw.LazyFrame):
         df = df.collect()
     candidates: list[datetime] = []
-    for col in ("TargetProcessCreationTime", "ActingProcessCreationTime", "ParentProcessCreationTime"):
+    for col in (
+        "TargetProcessCreationTime",
+        "ActingProcessCreationTime",
+        "ParentProcessCreationTime",
+    ):
         if col not in df.columns:
             continue
         val = df.select(nw.col(col).min()).item(0, 0)
@@ -20,7 +25,39 @@ def _compute_imputation_datetime(df: nw.DataFrame) -> datetime:
     return min(candidates) if candidates else datetime(1970, 1, 1)
 
 
-def prepare_events(events, source: str, impute_date_times: bool = True):
+def _coalesce_acting_parent(df: nw.DataFrame) -> nw.DataFrame:
+    """Fill nulls in Acting/Parent process triplets with sentinel values."""
+    return df.with_columns(
+        ActingProcessId=nw.coalesce(nw.col("ActingProcessId"), nw.lit(-1)),
+        ActingProcessFilename=nw.coalesce(
+            nw.col("ActingProcessFilename"), nw.lit("MISSING")
+        ),
+        ActingProcessCreationTime=nw.coalesce(
+            nw.col("ActingProcessCreationTime"), nw.lit(datetime(1970, 1, 1))
+        ),
+        ParentProcessId=nw.coalesce(nw.col("ParentProcessId"), nw.lit(-1)),
+        ParentProcessFilename=nw.coalesce(
+            nw.col("ParentProcessFilename"), nw.lit("MISSING")
+        ),
+        ParentProcessCreationTime=nw.coalesce(
+            nw.col("ParentProcessCreationTime"), nw.lit(datetime(1970, 1, 1))
+        ),
+    )
+
+
+def _impute_creation_times(df: nw.DataFrame, min_dt: datetime) -> nw.DataFrame:
+    """Fill null TargetProcessCreationTime with min_dt and flag affected rows."""
+    return df.with_columns(
+        ImputedCreationTime=nw.col("TargetProcessCreationTime").is_null(),
+        TargetProcessCreationTime=nw.coalesce(
+            nw.col("TargetProcessCreationTime"), nw.lit(min_dt)
+        ),
+    )
+
+
+def prepare_events(
+    events: IntoFrame, source: str, impute_date_times: bool = True
+) -> nw.DataFrame:
     """Prepare events from different telemetry sources into a unified schema.
 
     Parameters
@@ -47,7 +84,7 @@ def prepare_events(events, source: str, impute_date_times: bool = True):
     raise ValueError(f"Unknown source '{source}'. Expected 'mde' or 'volatility'.")
 
 
-def prepare_mde_data(events, impute_date_times: bool = True):
+def prepare_mde_data(events: IntoFrame, impute_date_times: bool = True) -> nw.DataFrame:
     """
     Process MDE data events to map processes correctly.
 
@@ -72,42 +109,32 @@ def prepare_mde_data(events, impute_date_times: bool = True):
 
     result = (
         df.filter(nw.col("ActionType") == "ProcessCreated")
-          .unique(subset=["ReportId", "Timestamp", "DeviceName"], keep="any")
-          .sort("Timestamp")
-          .with_columns(
-              TargetProcessId=nw.col("ProcessId"),
-              TargetProcessFilename=nw.col("FileName"),
-              TargetProcessCreationTime=nw.col("ProcessCreationTime"),
-              ActingProcessId=nw.col("InitiatingProcessId"),
-              ActingProcessFilename=nw.col("InitiatingProcessFileName"),
-              ActingProcessCreationTime=nw.col("InitiatingProcessCreationTime"),
-              ParentProcessId=nw.col("InitiatingProcessParentId"),
-              ParentProcessFilename=nw.col("InitiatingProcessParentFileName"),
-              ParentProcessCreationTime=nw.col("InitiatingProcessParentCreationTime"),
-              *optional_cols,
-          )
-          # Always coalesce acting/parent nulls to prevent Pydantic validation crashes
-          .with_columns(
-              ActingProcessId=nw.coalesce(nw.col("ActingProcessId"), nw.lit(-1)),
-              ActingProcessFilename=nw.coalesce(nw.col("ActingProcessFilename"), nw.lit("MISSING")),
-              ActingProcessCreationTime=nw.coalesce(nw.col("ActingProcessCreationTime"), nw.lit(datetime(1970, 1, 1))),
-              ParentProcessId=nw.coalesce(nw.col("ParentProcessId"), nw.lit(-1)),
-              ParentProcessFilename=nw.coalesce(nw.col("ParentProcessFilename"), nw.lit("MISSING")),
-              ParentProcessCreationTime=nw.coalesce(nw.col("ParentProcessCreationTime"), nw.lit(datetime(1970, 1, 1))),
-          )
+        .unique(subset=["ReportId", "Timestamp", "DeviceName"], keep="any")
+        .sort("Timestamp")
+        .with_columns(
+            TargetProcessId=nw.col("ProcessId"),
+            TargetProcessFilename=nw.col("FileName"),
+            TargetProcessCreationTime=nw.col("ProcessCreationTime"),
+            ActingProcessId=nw.col("InitiatingProcessId"),
+            ActingProcessFilename=nw.col("InitiatingProcessFileName"),
+            ActingProcessCreationTime=nw.col("InitiatingProcessCreationTime"),
+            ParentProcessId=nw.col("InitiatingProcessParentId"),
+            ParentProcessFilename=nw.col("InitiatingProcessParentFileName"),
+            ParentProcessCreationTime=nw.col("InitiatingProcessParentCreationTime"),
+            *optional_cols,
+        )
     )
+    result = _coalesce_acting_parent(result)
 
     if impute_date_times:
-        min_dt = _compute_imputation_datetime(result)
-        result = result.with_columns(
-            ImputedCreationTime=nw.col("TargetProcessCreationTime").is_null(),
-            TargetProcessCreationTime=nw.coalesce(nw.col("TargetProcessCreationTime"), nw.lit(min_dt)),
-        )
+        result = _impute_creation_times(result, _compute_imputation_datetime(result))
 
     return result
 
 
-def prepare_volatility_data(events, impute_date_times: bool = True):
+def prepare_volatility_data(
+    events: IntoFrame, impute_date_times: bool = True
+) -> nw.DataFrame:
     """
     Process Volatility data events from the `pstree` plugin. Adds immediate parent
     and grandparent information.
@@ -121,26 +148,32 @@ def prepare_volatility_data(events, impute_date_times: bool = True):
     """
     df = nw.from_native(events)
 
-    parent = (
-        df.with_columns(
-            ParentProcessId=nw.col("PID"),
-            ParentProcessFilename=nw.col("ImageFileName"),
-            ParentProcessCreationTime=nw.col("CreateTime"),
-            ParentVolId=nw.col("_vol_id"),
-        ).select("ParentVolId", "ParentProcessId", "ParentProcessFilename", "ParentProcessCreationTime")
+    parent = df.with_columns(
+        ParentProcessId=nw.col("PID"),
+        ParentProcessFilename=nw.col("ImageFileName"),
+        ParentProcessCreationTime=nw.col("CreateTime"),
+        ParentVolId=nw.col("_vol_id"),
+    ).select(
+        "ParentVolId",
+        "ParentProcessId",
+        "ParentProcessFilename",
+        "ParentProcessCreationTime",
     )
 
-    acting = (
-        df.with_columns(
-            ActingProcessId=nw.col("PID"),
-            ActingProcessFilename=nw.col("ImageFileName"),
-            ActingProcessCreationTime=nw.col("CreateTime"),
-            ActingVolId=nw.col("_vol_id"),
-            ActingVolParentId=nw.col("_vol_parent_id"),
-        ).select("ActingVolId", "ActingVolParentId", "ActingProcessId", "ActingProcessFilename", "ActingProcessCreationTime")
+    acting = df.with_columns(
+        ActingProcessId=nw.col("PID"),
+        ActingProcessFilename=nw.col("ImageFileName"),
+        ActingProcessCreationTime=nw.col("CreateTime"),
+        ActingVolId=nw.col("_vol_id"),
+        ActingVolParentId=nw.col("_vol_parent_id"),
+    ).select(
+        "ActingVolId",
+        "ActingVolParentId",
+        "ActingProcessId",
+        "ActingProcessFilename",
+        "ActingProcessCreationTime",
     )
 
-    # Reconstruct the right-join as: acting LEFT JOIN parent
     acting_with_parent = acting.join(
         parent,
         left_on="ActingVolParentId",
@@ -161,23 +194,12 @@ def prepare_volatility_data(events, impute_date_times: bool = True):
             TargetProcessCreationTime=nw.col("CreateTime"),
             Timestamp=nw.col("CreateTime"),
         )
-        .with_columns(
-            ActingProcessId=nw.coalesce(nw.col("ActingProcessId"), nw.lit(-1)),
-            ActingProcessFilename=nw.coalesce(nw.col("ActingProcessFilename"), nw.lit("MISSING")),
-            ActingProcessCreationTime=nw.coalesce(nw.col("ActingProcessCreationTime"), nw.lit(datetime(1970, 1, 1))),
-            ParentProcessId=nw.coalesce(nw.col("ParentProcessId"), nw.lit(-1)),
-            ParentProcessFilename=nw.coalesce(nw.col("ParentProcessFilename"), nw.lit("MISSING")),
-            ParentProcessCreationTime=nw.coalesce(nw.col("ParentProcessCreationTime"), nw.lit(datetime(1970, 1, 1))),
-        )
         .sort("CreateTime")
     )
+    result = _coalesce_acting_parent(result)
 
     if impute_date_times:
-        min_dt = _compute_imputation_datetime(result)
-        result = result.with_columns(
-            ImputedCreationTime=nw.col("TargetProcessCreationTime").is_null(),
-            TargetProcessCreationTime=nw.coalesce(nw.col("TargetProcessCreationTime"), nw.lit(min_dt)),
-        )
+        result = _impute_creation_times(result, _compute_imputation_datetime(result))
 
     return result
 

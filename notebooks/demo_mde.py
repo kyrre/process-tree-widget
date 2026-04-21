@@ -16,26 +16,26 @@ def _():
 
 @app.cell(hide_code=True)
 def _(ibis, mo):
-    pstree = ibis.read_parquet("public/demo.parquet")
-    mo.ui.table(pstree, selection=None)
-    return (pstree,)
+    mde = ibis.read_parquet("public/demo.parquet")
+    mo.ui.table(mde, selection=None)
+    return (mde,)
 
 
 @app.cell(hide_code=True)
-def _(ProcessTreeWidget, mo, pstree):
-    widget = mo.ui.anywidget(ProcessTreeWidget(events=pstree, source="mde"))
+def _(ProcessTreeWidget, mde, mo):
+    widget = mo.ui.anywidget(ProcessTreeWidget(events=mde, source="mde"))
     widget
     return (widget,)
 
 
-@app.cell
-def _(TimeFilterWidget, mo, pstree):
-    tf = mo.ui.anywidget(TimeFilterWidget(pstree, source="mde"))
+@app.cell(hide_code=True)
+def _(TimeFilterWidget, mde, mo):
+    tf = mo.ui.anywidget(TimeFilterWidget(mde, source="mde"))
     tf
     return (tf,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(tf, widget):
     widget.widget.date_range = tf.value
     return
