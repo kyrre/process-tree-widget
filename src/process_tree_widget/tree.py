@@ -3,7 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_pascal
 from typing import Self, List, Set, Final, Dict, Sequence
-import time
 
 
 class Process(BaseModel):
@@ -57,6 +56,17 @@ class Process(BaseModel):
     parent_process_filename: str = MISSING_FILE_NAME
     parent_process_creation_time: datetime = MISSING_CREATION_TIME
 
+    # True when target_process_creation_time was null in the source data and was filled by imputation
+    imputed_creation_time: bool = False
+
+    # True when this node was inferred from another event's acting/parent fields
+    # and has never been directly observed as a target process
+    synthetic: bool = False
+
+    # Optional enrichment fields (MDE only; empty string when unavailable)
+    command_line: str = ""
+    folder_path: str = ""
+
     def identifier(self) -> str:
         return f"{self.target_process_id}|{self.target_process_creation_time}"
 
@@ -104,12 +114,9 @@ class ProcessTree:
             self.build_tree(processes)
 
     def build_tree(self, processes: List) -> Self:
-        try:
-            for process in processes:
-                _process = Process.model_validate(process)
-                self.insert_process(_process)
-        except:
-            exit(1)
+        for process in processes:
+            _process = Process.model_validate(process)
+            self.insert_process(_process)
 
         return self
 
@@ -125,11 +132,14 @@ class ProcessTree:
         else:
             existing_process = node.data
 
-            if process.acting_process_id != Process.MISSING_PROCESS_ID:
+            if not process.synthetic:
+                # A real observed event is claiming this node — clear synthetic flag
+                # regardless of whether it has a known parent.
+                updated = process.model_copy(update={"synthetic": False})
                 self.tree.update_node(
                     process.identifier(),
-                    tag=process.tag(),
-                    data=process,
+                    tag=updated.tag(),
+                    data=updated,
                 )
 
                 # Check if the parent identifier has actually changed
@@ -145,6 +155,7 @@ class ProcessTree:
                 target_process_id=process.parent_process_id,
                 target_process_filename=process.parent_process_filename,
                 target_process_creation_time=process.parent_process_creation_time,
+                synthetic=True,
             )
             self.insert_or_update(parent_process)
 
@@ -157,6 +168,7 @@ class ProcessTree:
                 acting_process_id=process.parent_process_id,
                 acting_process_filename=process.parent_process_filename,
                 acting_process_creation_time=process.parent_process_creation_time,
+                synthetic=True,
             )
             self.insert_or_update(acting_process)
 
@@ -189,7 +201,13 @@ class ProcessTree:
                     "_deps": [process.parent_identifier()],
                     "ProcessName": process.target_process_filename,
                     "ProcessId": process.target_process_id,
-                    "ProcessCreationTime": process.target_process_creation_time,
+                    "TargetProcessCreationTime": process.target_process_creation_time,
+                    "ImputedCreationTime": process.imputed_creation_time,
+                    "Synthetic": process.synthetic,
+                    "ActingProcessName": process.acting_process_filename,
+                    "ActingProcessId": process.acting_process_id,
+                    "CommandLine": process.command_line,
+                    "FolderPath": process.folder_path,
                 }
 
             tree.append(data)

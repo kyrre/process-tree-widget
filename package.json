@@ -1,24 +1,14 @@
 {
 	"scripts": {
-		"dev": "npm run build -- --sourcemap=inline --watch",
-		"build": "esbuild js/widget.js --minify --format=esm --bundle --outdir=src/process_tree_widget/static"
+		"dev": "npm run build -- --sourcemap=inline --watch=forever",
+		"build": "esbuild js/process-tree/widget.js js/timefilter/widget.js --minify --format=esm --bundle --outbase=js --outdir=src/process_tree_widget/static"
 	},
 	"dependencies": {
 		"@observablehq/plot": "^0.6.17",
-		"@observablehq/runtime": "^6.0.0",
-		"@observablehq/stdlib": "^5.8.8",
 		"d3": "^7.9.0",
-		"graphology": "^0.26.0",
-		"graphology-layout": "^0.6.1",
-		"graphology-layout-force": "^0.2.4",
-		"graphology-layout-forceatlas2": "^0.10.1",
-		"htl": "github:observablehq/htl",
-		"install": "^0.13.0",
-		"npm": "^11.5.2",
-		"sigma": "^3.0.2"
+		"htl": "github:observablehq/htl"
 	},
 	"devDependencies": {
 		"esbuild": "^0.24.0"
 	}
 }
-	

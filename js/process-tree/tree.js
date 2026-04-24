@@ -1,5 +1,7 @@
-import DependenTree from "https://esm.sh/gh/kyrre/dependentree@dev";
+import DependenTree from "./dependentree/index.js";
 import * as d3 from "d3";
+
+const c = (light, dark) => document.querySelector('.dark, .dark-theme') ? dark : light;
 
 export class ProcessTree {
     setOptions(options) {
@@ -21,30 +23,16 @@ export class ProcessTree {
             verticalSpaceBetweenNodes: 50,
             horizontalSpaceBetweenNodes: 200,
             textStyleFont: '16px sans-serif',
-            textStyleColor: "var(--marimo-text-color, #ededed)",
+            textStyleColor: "currentColor",
             modifyEntityName: ({ ProcessName }) => ProcessName,
             contextMenuClick: null,
-            selectedNodeStrokeColor: "var(--marimo-selected-node-stroke-color, #37353f)",
-            selectedNodeColor: "var(--marimo-selected-node-color, #37353f)",
             selectedNodeStrokeWidth: 1.5,
             wrapNodeName: false,
-            textOffset: 30, // Adjusted text position for larger circles
-            tooltipStyleObj: {
-                'background-color': 'var(--marimo-tooltip-bg, #1c1c25)',
-                'opacity': '0.95',
-                'border-style': 'solid',
-                'border-width': '1px',
-                'border-color': 'var(--marimo-tooltip-border-color, #37353f)',
-                'border-radius': '3px',
-                'padding': '10px',
-                'box-shadow': '0 2px 4px rgba(0, 0, 0, 0.5)'
-            },
+            textOffset: 30,
             animationDuration: 600,
             parentNodeTextOrientation: "right",
             childNodeTextOrientation: "right",
-            nodeColor: "var(--marimo-node-color, #1c1c25)",
-            nodeStrokeColor: "var(--marimo-node-stroke-color, #37353f)",
-            nodeStrokeWidth: 5, // Made the node borders thicker
+            nodeStrokeWidth: 5,
             enableZoom: false,
             minZoom: 0.5,
             maxZoom: 2.5,
@@ -54,22 +42,32 @@ export class ProcessTree {
         };
     }
 
+    // Walk both visible (children) and collapsed (_children) nodes
+    _traverseAll(node, callback) {
+        callback(node);
+        (node.children || []).forEach(c => this._traverseAll(c, callback));
+        (node._children || []).forEach(c => this._traverseAll(c, callback));
+    }
+
     initialize(data, process_id) {
-
         this.data = data;
-        // Find node by process_id
-        let selectedNode = data.find(d => d.ProcessId === process_id);
-        this.currentNode = this.currentNode ? this.currentNode : data[0]?._name;
 
+        let selectedNode = data.find(d => d.ProcessId === process_id);
+
+        // Collect expanded nodes from the live tree before teardown.
+        // _traverseAll walks both node.children (visible) and node._children
+        // (collapsed) so the full state is captured regardless of what's expanded.
         const expandedNodes = new Set();
+        if (this.tree?.root) {
+            this._traverseAll(this.tree.root, node => {
+                if (node.children) expandedNodes.add(node.data._name);
+            });
+            this.currentNode = this.currentNode || data[0]?._name;
+        } else {
+            this.currentNode = data[0]?._name;
+        }
+
         if (this.tree) {
-            const collectExpandedNodes = (node) => {
-                if (node.children) {
-                    expandedNodes.add(node.data._name);
-                    node.children.forEach(collectExpandedNodes);
-                }
-            };
-            collectExpandedNodes(this.tree.root);
             this.tree.removeTree();
             this.tree = null;
         }
@@ -79,28 +77,36 @@ export class ProcessTree {
             container.innerHTML = '';
         }
 
+        // Fall back if currentNode no longer exists in filtered data
+        if (!data.find(d => d._name === this.currentNode)) {
+            this.currentNode = data[0]?._name;
+        }
+
         this.options.contextMenuClick = (event, d) => this.handleContextMenu(event, d);
+        const originalDuration = this.options.animationDuration;
+        this.options.animationDuration = -10;  // suppress flicker during full rebuild
         this.tree = new DependenTree(this.container, this.options);
         this.tree.addEntities(structuredClone(this.data));
-
         this.tree.selectedNode = selectedNode;
-
-
         this.tree.setTree(this.currentNode, "downstream");
 
         if (this.options.enableZoom) {
             this.initializeZoom();
         }
 
-        const originalDuration = this.tree.options.animationDuration;
-        this.tree.options.animationDuration = -10;
-
-        const findAndExpandNode = (node) => {
-            if (expandedNodes.has(node.data._name)) {
+        // Restore expanded nodes. Must walk _children too because setTree calls
+        // collapseAll — after that, root.children is null and root.each() sees
+        // nothing. We expand a node first, then recurse into its newly-visible
+        // children, while also recursing into still-collapsed _children.
+        const restoreExpanded = (node) => {
+            if (expandedNodes.has(node.data._name) && node._children) {
                 this.tree.expandNode(node, 0);
             }
+            [...(node.children || []), ...(node._children || [])].forEach(restoreExpanded);
         };
-        this.tree.root.each(findAndExpandNode);
+        restoreExpanded(this.tree.root);
+
+        this.options.animationDuration = originalDuration;
         this.tree.options.animationDuration = originalDuration;
 
         return this;
@@ -130,13 +136,13 @@ export class ProcessTree {
             .attr('width', 160)
             .attr('height', 200)
             .append('xhtml:div')
-            .style('background-color', '#ffffff') // Light mode background
-            .style('border', '1px solid #cccccc') // Light mode border
+            .style('background-color', c('#ffffff', '#1f2937'))
+            .style('border', `1px solid ${c('#d1d5db', '#374151')}`)
             .style('border-radius', '5px')
             .style('padding', '5px')
-            .style('box-shadow', '0 2px 8px rgba(138, 132, 132, 0.9)') // Light mode shadow
+            .style('box-shadow', '0 2px 8px rgba(0, 0, 0, 0.25)')
             .style('font', this.options.textStyleFont)
-            .style('color', '#262323ff'); // Light mode text color
+            .style('color', c('#111827', '#f9fafb'));
 
         menu.append('div')
             .text('Set as new root')
@@ -180,7 +186,7 @@ export class ProcessTree {
             this.tree.setTree(this.currentNode, 'downstream');
         }
 
-        return this.currentNode; // Return for Observable reactivity
+        return this.currentNode;
     }
 
     goToRoot() {
@@ -203,7 +209,7 @@ export class ProcessTree {
         }
 
         if (this.container) {
-            document.querySelector(this.container).innerHTML = "";
+            this.container.innerHTML = "";
         }
     }
 

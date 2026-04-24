@@ -4,24 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "process_tree_widget"
-version = "0.0.2"
+version = "0.1.0"
+description = "Interactive process tree visualization widget for security and forensics analysis in marimo notebooks"
+requires-python = ">=3.12"
+authors = [
+    { name = "Kyrre Wahl Kongsgård" }
+]
+license = { text = "MIT" }
 dependencies = [
     "anywidget",
     "treelib",
     "pydantic",
+    "narwhals",
+    "traitlets",
 ]
 readme = "README.md"
 
 [dependency-groups]
 dev = [
     "watchfiles",
-    "jupyterlab",
     "ruff",
     "mypy",
     "marimo",
-    "openai>=1.102.0",
     "ibis-framework[duckdb,deltalake]",
-    "databricks-connect",
+    "pytest>=9.0.3",
 ]
 
 [tool.hatch.build]
@@ -30,8 +36,8 @@ artifacts = ["src/process_tree_widget/static/*"]
 
 [tool.hatch.build.hooks.jupyter-builder]
 build-function = "hatch_jupyter_builder.npm_builder"
-ensured-targets = ["src/process_tree_widget/static/widget.js"]
-skip-if-exists = ["src/process_tree_widget/static/widget.js"]
+ensured-targets = ["src/process_tree_widget/static/process-tree/widget.js"]
+skip-if-exists = ["src/process_tree_widget/static/process-tree/widget.js"]
 dependencies = ["hatch-jupyter-builder>=0.5.0"]
 
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
@@ -40,7 +46,7 @@ build_cmd = "build"
 
 [tool.ruff]
 exclude = [
-    "example.py",
+    "notebooks/",
     ".git",
     ".venv",
     "__pycache__",
@@ -56,4 +62,4 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
-exclude = ["example.py"]
+exclude = ["notebooks/"]
