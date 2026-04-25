@@ -1,5 +1,6 @@
 import importlib.metadata
 import pathlib
+from datetime import datetime
 
 import anywidget
 import narwhals as nw
@@ -69,11 +70,12 @@ class ProcessTreeWidget(anywidget.AnyWidget):
         tree = ProcessTree(raw_list)
         self.events = tree.create_dependentree_format()
 
+        _epoch = datetime(1970, 1, 1)
         if start_date is None or end_date is None:
             times = sorted(
                 e["TargetProcessCreationTime"]
                 for e in self.events
-                if e.get("TargetProcessCreationTime")
+                if e.get("TargetProcessCreationTime") and e["TargetProcessCreationTime"] != _epoch
             )
             if times:
                 if start_date is None:

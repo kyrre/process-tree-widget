@@ -24,7 +24,7 @@ export class ProcessTree {
             horizontalSpaceBetweenNodes: 200,
             textStyleFont: '16px sans-serif',
             textStyleColor: "currentColor",
-            modifyEntityName: ({ ProcessName }) => ProcessName,
+            modifyEntityName: ({ ProcessName, ProcessId, ChildCount }) => (ProcessName && ProcessName !== 'MISSING') ? ProcessName : `${ProcessId} (${ChildCount ?? 0} nodes)`,
             contextMenuClick: null,
             selectedNodeStrokeWidth: 1.5,
             wrapNodeName: false,
@@ -62,9 +62,9 @@ export class ProcessTree {
             this._traverseAll(this.tree.root, node => {
                 if (node.children) expandedNodes.add(node.data._name);
             });
-            this.currentNode = this.currentNode || data[0]?._name;
+            this.currentNode = this.currentNode || "<root>";
         } else {
-            this.currentNode = data[0]?._name;
+            this.currentNode = "<root>";
         }
 
         if (this.tree) {
@@ -79,7 +79,7 @@ export class ProcessTree {
 
         // Fall back if currentNode no longer exists in filtered data
         if (!data.find(d => d._name === this.currentNode)) {
-            this.currentNode = data[0]?._name;
+            this.currentNode = "<root>";
         }
 
         this.options.contextMenuClick = (event, d) => this.handleContextMenu(event, d);
@@ -171,7 +171,7 @@ export class ProcessTree {
 
     // Navigation methods
     goToParent() {
-        if (this.currentNode === this.data[0]._name) return;
+        if (this.currentNode === "<root>") return;
 
         const currentEntity = Object.values(this.data).find(entity =>
             entity._name === this.currentNode
@@ -182,7 +182,8 @@ export class ProcessTree {
             this.currentNode = parent;
             this.tree.setTree(this.currentNode, 'downstream');
         } else {
-            this.currentNode = this.data[0]._name;
+            const root = this.data.find(d => d._name === "<root>") ?? this.data[0];
+            this.currentNode = root._name;
             this.tree.setTree(this.currentNode, 'downstream');
         }
 
@@ -190,7 +191,8 @@ export class ProcessTree {
     }
 
     goToRoot() {
-        this.currentNode = this.data[0]._name;
+        const root = this.data.find(d => d._name === "<root>") ?? this.data[0];
+        this.currentNode = root._name;
         this.tree.setTree(this.currentNode, 'downstream');
         return this.currentNode;
     }
