@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.3"
 app = marimo.App(width="medium", sql_output="polars")
 
 
@@ -23,21 +23,32 @@ def _(ibis, mo):
 
 @app.cell(hide_code=True)
 def _(ProcessTreeWidget, mde, mo):
-    widget = mo.ui.anywidget(ProcessTreeWidget(events=mde, source="mde"))
+    widget = mo.ui.anywidget(ProcessTreeWidget(events=mde, source="mde")) 
     widget
-    return (widget,)
+    return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(TimeFilterWidget, mde, mo):
     tf = mo.ui.anywidget(TimeFilterWidget(mde, source="mde"))
     tf
     return (tf,)
 
 
-@app.cell(hide_code=True)
-def _(tf, widget):
-    widget.widget.date_range = tf.value
+@app.cell
+def _(tf):
+    tf.start_date
+    return
+
+
+@app.cell
+def _(tf):
+    tf.start_date
+    return
+
+
+@app.cell
+def _():
     return
 
 

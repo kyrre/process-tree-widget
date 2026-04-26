@@ -28,44 +28,37 @@ def _compute_imputation_datetime(df: nw.DataFrame) -> datetime:
 def _coalesce_acting_parent(df: nw.DataFrame) -> nw.DataFrame:
     """Normalize Acting/Parent/Target process triplets to sentinel values.
 
-    Two passes:
-    1. Fill SQL nulls and the literal string "null" with sentinels (-1 / "MISSING" / epoch).
-    2. Truncate all creation times to second precision — MDE stores acting
-       timestamps at microsecond resolution but parent timestamps at second
-       resolution for the same physical process, causing identifier splits.
+    Fills SQL nulls and the literal string "null" with sentinels:
+      PID  → -1   (null or 0; PID 0 is System Idle, not a real parent)
+      name → "MISSING"
+      time → epoch
     """
     epoch = datetime(1970, 1, 1)
-    return (
-        df.with_columns(
-            TargetProcessId=nw.coalesce(nw.col("TargetProcessId"), nw.lit(-1)),
-            TargetProcessFilename=nw.when(
-                nw.col("TargetProcessFilename").is_null() | (nw.col("TargetProcessFilename") == nw.lit("null"))
-            ).then(nw.lit("MISSING")).otherwise(nw.col("TargetProcessFilename")),
-            # PID 0 (System Idle) is not a real parent — treat as missing.
-            ActingProcessId=nw.when(
-                nw.col("ActingProcessId").is_null() | (nw.col("ActingProcessId") == nw.lit(0))
-            ).then(nw.lit(-1)).otherwise(nw.col("ActingProcessId")),
-            ActingProcessFilename=nw.when(
-                nw.col("ActingProcessFilename").is_null() | (nw.col("ActingProcessFilename") == nw.lit("null"))
-            ).then(nw.lit("MISSING")).otherwise(nw.col("ActingProcessFilename")),
-            ActingProcessCreationTime=nw.coalesce(
-                nw.col("ActingProcessCreationTime"), nw.lit(epoch)
-            ),
-            ParentProcessId=nw.when(
-                nw.col("ParentProcessId").is_null() | (nw.col("ParentProcessId") == nw.lit(0))
-            ).then(nw.lit(-1)).otherwise(nw.col("ParentProcessId")),
-            ParentProcessFilename=nw.when(
-                nw.col("ParentProcessFilename").is_null() | (nw.col("ParentProcessFilename") == nw.lit("null"))
-            ).then(nw.lit("MISSING")).otherwise(nw.col("ParentProcessFilename")),
-            ParentProcessCreationTime=nw.coalesce(
-                nw.col("ParentProcessCreationTime"), nw.lit(epoch)
-            ),
-        )
-        .with_columns(
-            TargetProcessCreationTime=nw.col("TargetProcessCreationTime").dt.truncate("1s"),
-            ActingProcessCreationTime=nw.col("ActingProcessCreationTime").dt.truncate("1s"),
-            ParentProcessCreationTime=nw.col("ParentProcessCreationTime").dt.truncate("1s"),
-        )
+
+    def _pid(col: str) -> nw.Expr:
+        return nw.when(
+            nw.col(col).is_null() | (nw.col(col) == nw.lit(0))
+        ).then(nw.lit(-1)).otherwise(nw.col(col))
+
+    def _name(col: str) -> nw.Expr:
+        return nw.when(
+            nw.col(col).is_null() | (nw.col(col) == nw.lit("null"))
+        ).then(nw.lit("MISSING")).otherwise(nw.col(col))
+
+    def _time(col: str) -> nw.Expr:
+        # Cast epoch literal to us to match column precision — nw.lit(datetime) defaults to
+        # Datetime(s) on the ibis backend which downgrades the column on coalesce.
+        return nw.coalesce(nw.col(col), nw.lit(epoch).cast(nw.Datetime("us")))
+
+    return df.with_columns(
+        TargetProcessId=_pid("TargetProcessId"),
+        TargetProcessFilename=_name("TargetProcessFilename"),
+        ActingProcessId=_pid("ActingProcessId"),
+        ActingProcessFilename=_name("ActingProcessFilename"),
+        ActingProcessCreationTime=_time("ActingProcessCreationTime"),
+        ParentProcessId=_pid("ParentProcessId"),
+        ParentProcessFilename=_name("ParentProcessFilename"),
+        ParentProcessCreationTime=_time("ParentProcessCreationTime"),
     )
 
 
@@ -81,38 +74,76 @@ def _resolve_epoch_times(df: nw.DataFrame) -> nw.DataFrame:
     PIDs with multiple distinct creation times (PID recycled across reboots) are
     left untouched — they're genuinely ambiguous.
     """
+    # Collect to eager: this function does multi-table self-joins and concat
+    # which require a materialised frame with a consistent schema.
+    if isinstance(df, nw.LazyFrame):
+        df = df.collect()
     epoch = datetime(1970, 1, 1)
 
-    # Build a (PID, filename) → creation-time lookup from all three roles.
-    # Joining on both PID and filename handles PID reuse across reboots: if
-    # PID 2596 was WmiPrvSE.exe then ssh.exe, the PID-only lookup is ambiguous
-    # but (2596, ssh.exe) resolves to exactly one time.
+    # Step 1: pool all non-epoch, non-zero PID observations from every role into
+    # a single (Pid, Filename, Time) table — this is the evidence base of known
+    # creation times across the whole dataset.
     target_times = (
-        df.filter((nw.col("TargetProcessCreationTime") != nw.lit(epoch)) & (nw.col("TargetProcessId") > nw.lit(0)))
-        .select(nw.col("TargetProcessId").alias("Pid"), nw.col("TargetProcessFilename").alias("Filename"), nw.col("TargetProcessCreationTime").alias("Time"))
+        df.filter(
+            (nw.col("TargetProcessCreationTime") != nw.lit(epoch))
+            & (nw.col("TargetProcessId") > nw.lit(0))
+        )
+        .select(
+            nw.col("TargetProcessId").alias("Pid"),
+            nw.col("TargetProcessFilename").alias("Filename"),
+            nw.col("TargetProcessCreationTime").alias("Time"),
+        )
     )
     acting_times = (
-        df.filter((nw.col("ActingProcessCreationTime") != nw.lit(epoch)) & (nw.col("ActingProcessId") > nw.lit(0)))
-        .select(nw.col("ActingProcessId").alias("Pid"), nw.col("ActingProcessFilename").alias("Filename"), nw.col("ActingProcessCreationTime").alias("Time"))
+        df.filter(
+            (nw.col("ActingProcessCreationTime") != nw.lit(epoch))
+            & (nw.col("ActingProcessId") > nw.lit(0))
+        )
+        .select(
+            nw.col("ActingProcessId").alias("Pid"),
+            nw.col("ActingProcessFilename").alias("Filename"),
+            nw.col("ActingProcessCreationTime").alias("Time"),
+        )
     )
     parent_times = (
-        df.filter((nw.col("ParentProcessCreationTime") != nw.lit(epoch)) & (nw.col("ParentProcessId") > nw.lit(0)))
-        .select(nw.col("ParentProcessId").alias("Pid"), nw.col("ParentProcessFilename").alias("Filename"), nw.col("ParentProcessCreationTime").alias("Time"))
+        df.filter(
+            (nw.col("ParentProcessCreationTime") != nw.lit(epoch))
+            & (nw.col("ParentProcessId") > nw.lit(0))
+        )
+        .select(
+            nw.col("ParentProcessId").alias("Pid"),
+            nw.col("ParentProcessFilename").alias("Filename"),
+            nw.col("ParentProcessCreationTime").alias("Time"),
+        )
     )
-    pid_lookup = (
+    # Step 2: collapse to unambiguous (PID, filename) → time.
+    # n_unique == 1 means all roles agree on exactly one creation time — safe to use.
+    # n_unique > 1 means PID recycled with same filename — genuinely ambiguous, skip and warn.
+    all_times = (
         nw.concat([target_times, acting_times, parent_times])
         .group_by("Pid", "Filename")
         .agg(
             nw.col("Time").n_unique().alias("n_times"),
             nw.col("Time").min().alias("ResolvedCreationTime"),
         )
-        .filter(nw.col("n_times") == nw.lit(1))
-        .drop("n_times")
     )
+    ambiguous = all_times.filter(nw.col("n_times") > nw.lit(1))
+    if len(ambiguous) > 0:
+        import warnings
+        rows = ambiguous.select("Pid", "Filename", "n_times").to_arrow().to_pylist()
+        warnings.warn(
+            f"_resolve_epoch_times: {len(rows)} (PID, filename) pair(s) observed with multiple "
+            f"distinct creation times — likely PID recycling, epoch references for these will not be patched: "
+            + ", ".join(f"{r['Filename']}(PID {r['Pid']}, {r['n_times']} times)" for r in rows[:5])
+            + ("..." if len(rows) > 5 else ""),
+            stacklevel=3,
+        )
+    pid_lookup = all_times.filter(nw.col("n_times") == nw.lit(1)).drop("n_times")
 
-    # Secondary lookup: PID-only, for rows whose filename is MISSING.
-    # Only include PIDs that map to exactly one (filename, time) pair so we
-    # don't accidentally merge two different processes that recycled the same PID.
+    # Step 3: secondary PID-only lookup for rows where acting/parent filename is MISSING
+    # (the (PID, filename) join from step 2 would never match "MISSING").
+    # Only include PIDs that resolve to exactly one time across all filenames —
+    # otherwise the PID is recycled and we can't safely pick a winner.
     pid_only_lookup = (
         pid_lookup
         .group_by("Pid")
@@ -125,7 +156,8 @@ def _resolve_epoch_times(df: nw.DataFrame) -> nw.DataFrame:
     )
 
     def _resolve(df: nw.DataFrame, pid_col: str, filename_col: str, time_col: str) -> nw.DataFrame:
-        # Pass 1: (PID, filename) — handles normal cases and avoids PID-reuse collisions
+        # Step 4: patch epoch references with the real creation time.
+        # Pass 1: join on (PID, filename) — covers the normal case.
         df = (
             df.join(
                 pid_lookup.rename({"Pid": pid_col, "Filename": filename_col, "ResolvedCreationTime": "_resolved"}),
@@ -139,7 +171,7 @@ def _resolve_epoch_times(df: nw.DataFrame) -> nw.DataFrame:
             )
             .drop("_resolved")
         )
-        # Pass 2: PID-only for rows still at epoch with MISSING filename
+        # Pass 2: PID-only fallback for rows still at epoch with MISSING filename.
         df = (
             df.join(
                 pid_only_lookup.rename({"Pid": pid_col, "ResolvedCreationTime": "_resolved2"}),
