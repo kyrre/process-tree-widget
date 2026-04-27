@@ -184,7 +184,7 @@ export default () => {
         const treeContainer = layout.querySelector("#tree");
         processTree = new ProcessTree(treeContainer);
         processTree.setOptions({
-          modifyEntityName: ({ ProcessName }) => ProcessName,
+          modifyEntityName: ({ ProcessName, ProcessId }) => (ProcessName && ProcessName !== 'MISSING') ? ProcessName : `pid:${ProcessId}`,
           textClick: () => null,
           animationDuration: 300,
           parentNodeTextOrientation: 'right',

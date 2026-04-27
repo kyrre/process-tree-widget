@@ -48,9 +48,6 @@ class Process(BaseModel):
     acting_process_filename: str = MISSING_FILE_NAME
     acting_process_creation_time: datetime = MISSING_CREATION_TIME
 
-    # TODO: A special case occurs when you reboot the machine. then you get parent_process_pid = 0
-    # with some None/null values for the filename and an invalid datetime!
-
     # Grandparent process
     parent_process_id: int = MISSING_PROCESS_ID
     parent_process_filename: str = MISSING_FILE_NAME
@@ -73,7 +70,6 @@ class Process(BaseModel):
     def parent_identifier(self) -> str:
         if self.acting_process_id == Process.MISSING_PROCESS_ID:
             return "<root>"
-
         return f"{self.acting_process_id}|{self.acting_process_creation_time}"
 
     def tag(self) -> str:
@@ -114,11 +110,41 @@ class ProcessTree:
             self.build_tree(processes)
 
     def build_tree(self, processes: List) -> Self:
-        for process in processes:
-            _process = Process.model_validate(process)
-            self.insert_process(_process)
-
+        parsed = [Process.model_validate(p) for p in processes]
+        # Sort so ancestors arrive before descendants. Using the triple
+        # (grandparent, acting/parent, target) creation times ensures that
+        # when we insert a synthetic acting node it will already be re-parented
+        # correctly by the time the target row is processed.
+        parsed.sort(key=lambda p: (
+            p.parent_process_creation_time,
+            p.acting_process_creation_time,
+            p.target_process_creation_time,
+        ))
+        for process in parsed:
+            self.insert_process(process)
+        self._prune_synthetic_leaves()
         return self
+
+    def _prune_synthetic_leaves(self) -> None:
+        """Remove synthetic nodes that ended up with no children.
+
+        A grandparent-only reference (ParentProcessId but never ActingProcessId)
+        produces a synthetic node whose children all got re-parented under their
+        real acting parent. That leaves a ghost leaf — e.g. svchost inferred under
+        root when ms-teams.exe is actually parented under explorer.exe.
+        Repeat until stable because removing a leaf may expose another.
+        """
+        changed = True
+        while changed:
+            changed = False
+            for node in list(self.tree.all_nodes()):
+                if (
+                    node.data is not None
+                    and node.data.synthetic
+                    and len(self.tree.children(node.identifier)) == 0
+                ):
+                    self.tree.remove_node(node.identifier)
+                    changed = True
 
     def insert_or_update(self, process: Process) -> None:
         node = self.tree.get_node(process.identifier())
@@ -147,20 +173,30 @@ class ProcessTree:
                     self.tree.move_node(
                         process.identifier(), process.parent_identifier()
                     )
+            elif (
+                existing_process.parent_identifier() == "<root>"
+                and process.parent_identifier() != "<root>"
+            ):
+                # Synthetic node was parented under <root> due to missing acting info;
+                # a later row now supplies the real parent — re-parent it.
+                self.tree.update_node(process.identifier(), data=process)
+                self.tree.move_node(process.identifier(), process.parent_identifier())
 
     def insert_process(self, process: Process) -> None:
-        # Only insert parent if not missing
-        if process.parent_process_id != Process.MISSING_PROCESS_ID:
-            parent_process = Process(
-                target_process_id=process.parent_process_id,
-                target_process_filename=process.parent_process_filename,
-                target_process_creation_time=process.parent_process_creation_time,
-                synthetic=True,
-            )
-            self.insert_or_update(parent_process)
-
-        # Only insert acting if not missing
         if process.acting_process_id != Process.MISSING_PROCESS_ID:
+            # Grandparent must exist before acting synthetic can reference it.
+            # With rows sorted by (grandparent_time, acting_time, target_time) the
+            # grandparent's own real event will have been processed already when it
+            # matters, so this synthetic is typically a no-op or a re-parent.
+            if process.parent_process_id != Process.MISSING_PROCESS_ID:
+                grandparent = Process(
+                    target_process_id=process.parent_process_id,
+                    target_process_filename=process.parent_process_filename,
+                    target_process_creation_time=process.parent_process_creation_time,
+                    synthetic=True,
+                )
+                self.insert_or_update(grandparent)
+
             acting_process = Process(
                 target_process_id=process.acting_process_id,
                 target_process_filename=process.acting_process_filename,
@@ -193,7 +229,13 @@ class ProcessTree:
         tree = []
         for node in self.tree.all_nodes():
             if node.data is None:
-                data = {"_name": "<root>", "_deps": []}
+                parent = self.tree.parent(node.identifier)
+                data = {
+                    "_name": node.identifier,
+                    "_deps": [parent.identifier] if parent else [],
+                    "ProcessName": "root",
+                    "Synthetic": False,
+                }
             else:
                 process = node.data
                 data = {
@@ -201,6 +243,7 @@ class ProcessTree:
                     "_deps": [process.parent_identifier()],
                     "ProcessName": process.target_process_filename,
                     "ProcessId": process.target_process_id,
+                    "ChildCount": len(self.tree.children(node.identifier)),
                     "TargetProcessCreationTime": process.target_process_creation_time,
                     "ImputedCreationTime": process.imputed_creation_time,
                     "Synthetic": process.synthetic,
