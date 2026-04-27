@@ -39,6 +39,7 @@ export function _constructor(selector, userOptions = {}) {
 
   // We make one mutation to the passed container
   this.passedContainerEl.style.overflow = 'auto';
+  this.passedContainerEl.style.position = 'relative';
 
   // Another container element is made to be put inside of the passed container
   this.containerDiv = document.createElement('div');

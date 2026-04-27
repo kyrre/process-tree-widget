@@ -30,9 +30,10 @@ export function _mousemove(event, d) {
   if (this._entityHasProps(d)) {
     this.tooltip.style('visibility', 'visible');
 
+    const rect = this.passedContainerEl.getBoundingClientRect();
     this.tooltip
-      .style('top', `${event.clientY + 10}px`)
-      .style('left', `${event.clientX + 10}px`)
+      .style('top', `${event.clientY - rect.top + 10}px`)
+      .style('left', `${event.clientX - rect.left + 10}px`)
   }
 }
 

@@ -1,7 +1,5 @@
 import importlib.metadata
 import pathlib
-from datetime import datetime
-
 import anywidget
 import narwhals as nw
 import traitlets
@@ -20,7 +18,7 @@ except importlib.metadata.PackageNotFoundError:
 class ProcessTreeWidget(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "process-tree" / "widget.js"
 
-    process_id = traitlets.Int(-1).tag(sync=True)
+    selected_event: traitlets.Dict = traitlets.Dict({}).tag(sync=True)
     events: traitlets.List = traitlets.List([]).tag(sync=True)
     _start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     _end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
@@ -65,17 +63,24 @@ class ProcessTreeWidget(anywidget.AnyWidget):
         elif isinstance(events, list):
             raw_list = events
         else:
-            raw_list = nw.from_native(events).to_arrow().to_pylist()
+            prepared = nw.from_native(events)
+            raw_list = prepared.to_arrow().to_pylist()
 
         tree = ProcessTree(raw_list)
         self.events = tree.create_dependentree_format()
 
+        # Derive the default time window from real (non-synthetic) nodes so the
+        # timefilter brush covers the actual data range on first render.
+        # Synthetic nodes carry epoch timestamps and would skew the window to 1970.
+        from datetime import datetime
         _epoch = datetime(1970, 1, 1)
         if start_date is None or end_date is None:
             times = sorted(
                 e["TargetProcessCreationTime"]
                 for e in self.events
-                if e.get("TargetProcessCreationTime") and e["TargetProcessCreationTime"] != _epoch
+                if e.get("TargetProcessCreationTime")
+                and e["TargetProcessCreationTime"] != _epoch
+                and not e.get("Synthetic")
             )
             if times:
                 if start_date is None:

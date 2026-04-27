@@ -33,16 +33,14 @@ function initializeProcessTree(processTree, model) {
 		model.get("_end_date")
 	);
 
-	let process_id = model.get("process_id");
-	let processEvent = allEvents.find(d => d.ProcessId == process_id);
+	let process_id = model.get("selected_event")?.ProcessId;
+	let nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
-	// TODO: when closest-ancestor helper is implemented, try it before falling back.
-	if ((typeof processEvent === "undefined" || typeof process_id === "undefined") && allEvents.length > 0) {
+	if (!nodeInEvents && allEvents.length > 0) {
 		process_id = getCurrentNodePid(allEvents, processTree.currentNode);
-		if (typeof process_id === "undefined") {
-			process_id = allEvents[1].ProcessId;
-		}
-		model.set("process_id", process_id);
+		if (process_id == null) process_id = allEvents[1]?.ProcessId;
+		const event = allEvents.find(d => d.ProcessId === process_id) ?? {};
+		model.set("selected_event", event);
 		model.save_changes();
 	}
 
@@ -190,7 +188,8 @@ export default () => {
           parentNodeTextOrientation: 'right',
           childNodeTextOrientation: 'right',
           nodeClick: (node) => {
-            model.set("process_id", node.ProcessId);
+            const { _deps, ...event } = node;
+            model.set("selected_event", event);
             model.save_changes();
             processTree.tree.selectedNode = node;
           }
