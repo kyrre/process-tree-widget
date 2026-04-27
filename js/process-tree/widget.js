@@ -153,9 +153,10 @@ export default () => {
       model.on("change:_end_date",   onDateChange);
       model.on("change:events",      onEventsChange);
       return () => {
-        model.off("change:_start_date", onDateChange);
-        model.off("change:_end_date",   onDateChange);
-        model.off("change:events",      onEventsChange);
+        model.off("change:_start_date",    onDateChange);
+        model.off("change:_end_date",      onDateChange);
+        model.off("change:events",         onEventsChange);
+        model.off("change:custom_actions");
         try { processTree?.destroy?.(); } catch {}
         processTree = null;
         layout = null;
@@ -192,7 +193,16 @@ export default () => {
             model.set("selected_event", event);
             model.save_changes();
             processTree.tree.selectedNode = node;
-          }
+          },
+          customActions: model.get("custom_actions") ?? [],
+          onActionTriggered: (id, nodeData) => {
+            const { _deps, ...event } = nodeData;
+            model.set("triggered_action", { id, ...event });
+            model.save_changes();
+          },
+        });
+        model.on("change:custom_actions", () => {
+          processTree.setOptions({ customActions: model.get("custom_actions") ?? [] });
         });
       }
 

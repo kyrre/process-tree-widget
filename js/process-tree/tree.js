@@ -163,6 +163,17 @@ export class ProcessTree {
                 this.tree.svg.selectAll('.context-menu').remove();
             });
 
+        (this.options.customActions ?? []).forEach(action => {
+            menu.append('div')
+                .text(action.label)
+                .style('padding', '8px 12px')
+                .style('cursor', 'pointer')
+                .on('click', () => {
+                    this.options.onActionTriggered?.(action.id, d.data);
+                    this.tree.svg.selectAll('.context-menu').remove();
+                });
+        });
+
         this.tree.svg.on('click.context-menu', () => {
             this.tree.svg.selectAll('.context-menu').remove();
             this.tree.svg.on('click.context-menu', null);

@@ -22,6 +22,8 @@ class ProcessTreeWidget(anywidget.AnyWidget):
     events: traitlets.List = traitlets.List([]).tag(sync=True)
     _start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     _end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
+    custom_actions: traitlets.List = traitlets.List([]).tag(sync=True)
+    triggered_action: traitlets.Dict = traitlets.Dict({}).tag(sync=True)
 
     def __init__(
         self,
