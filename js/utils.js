@@ -1,15 +1,6 @@
 export function getCurrentNodePid(data, currentNode) {
 	if (!currentNode) return undefined;
-	// If currentNode is a string (_name), find the event
-	if (typeof currentNode === "string") {
-		const nodeEvent = data.find(d => d._name === currentNode);
-		return nodeEvent ? nodeEvent.ProcessId : undefined;
-	}
-	// If currentNode is an object with ProcessId
-	if (typeof currentNode === "object" && currentNode.ProcessId !== undefined) {
-		return currentNode.ProcessId;
-	}
-	return undefined;
+	return data.find(d => d._name === currentNode)?.ProcessId;
 }
 
 export function filterAndSortData(data, startDate, endDate) {
