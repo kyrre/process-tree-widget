@@ -58,7 +58,7 @@ export function _setTooltip() {
   this.tooltip = d3
     .select(this.elementSelectorString)
     .append('div')
-    .style('position', 'fixed')
+    .style('position', 'absolute')
     .style('visibility', 'hidden');
 
   for (const key in this.options.tooltipStyleObj) {
