@@ -38,7 +38,8 @@ function initializeProcessTree(processTree, model, hiddenRootNames) {
 	let nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
 	if (!nodeInEvents && allEvents.length > 0) {
-		process_id = getCurrentNodePid(allEvents, processTree.currentNode);
+		const lookupNode = processTree.currentNode ?? processTree.initialNode;
+		process_id = getCurrentNodePid(allEvents, lookupNode);
 		if (process_id == null) process_id = allEvents[1]?.ProcessId;
 		const event = allEvents.find(d => d.ProcessId === process_id) ?? {};
 		model.set("selected_event", event);
