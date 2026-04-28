@@ -21,10 +21,14 @@ export function filterByRootNames(events, currentRoot, hiddenRootNames) {
 	return events.filter(e => !excluded.has(e._name));
 }
 
+export function findClosestAncestorInFiltered(allEvents, filteredNames, nodeName) {
+	const parentOf = new Map(allEvents.map(e => [e._name, e._deps?.[0]]));
+	let cur = nodeName;
+	while (cur && !filteredNames.has(cur)) cur = parentOf.get(cur);
+	return cur ?? "<root>";
+}
+
 export function filterAndSortData(data, startDate, endDate) {
-	// TODO: add helper findClosestAncestorInFiltered(allEvents, filteredEvents, startNode)
-	// that walks parent chain (_deps[0]) until it finds an event inside filteredEvents.
-	// Will be used when currently selected node was filtered out by time window.
 	// Normalize inputs to Date objects (or null)
 	const start = startDate ? new Date(startDate) : null;
 	const end = endDate ? new Date(endDate) : null;

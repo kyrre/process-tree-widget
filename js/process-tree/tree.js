@@ -14,6 +14,8 @@ export class ProcessTree {
     constructor(container, options = {}) {
         this.container = container;
         this.currentNode = null;
+        this.focalNode = null;
+        this.userNavigated = false;
         this.tree = null;
         this.data = null;
         this.zoom = null;
@@ -65,7 +67,9 @@ export class ProcessTree {
             });
             this.currentNode = this.currentNode || "<root>";
         } else {
-            this.currentNode = this.initialNode || "<root>";
+            if (this.initialNode) this.focalNode = this.initialNode;
+            // Prefer currentNode if widget.js already corrected it via ancestor walk
+            this.currentNode = this.currentNode || this.initialNode || "<root>";
             this.initialNode = null;
         }
 

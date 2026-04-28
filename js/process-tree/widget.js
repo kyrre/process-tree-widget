@@ -1,4 +1,4 @@
-import { getCurrentNodePid, filterAndSortData, filterByRootNames } from "../utils.js";
+import { getCurrentNodePid, filterAndSortData, filterByRootNames, findClosestAncestorInFiltered } from "../utils.js";
 import { ProcessTree } from "./tree.js";
 import { html } from "htl";
 
@@ -34,12 +34,36 @@ function initializeProcessTree(processTree, model, hiddenRootNames) {
 	);
 	allEvents = filterByRootNames(allEvents, processTree.currentNode, hiddenRootNames);
 
-	let process_id = model.get("selected_event")?.ProcessId;
-	let nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
+	const focalNode = processTree.focalNode ?? processTree.initialNode;
+	const filteredNames = new Set(allEvents.map(e => e._name));
+
+	let process_id;
+	if (focalNode && !processTree.userNavigated) {
+		const focalInFiltered = allEvents.find(d => d._name === focalNode);
+		if (focalInFiltered) {
+			// Focal node is visible — snap to it and select it
+			processTree.currentNode = focalNode;
+			process_id = focalInFiltered.ProcessId;
+		} else {
+			// Focal node outside range — walk up from focalNode each time (not from currentNode)
+			processTree.currentNode = findClosestAncestorInFiltered(
+				model.get("events"), filteredNames, focalNode
+			);
+			process_id = null; // nothing to select; focal node not in view
+		}
+	} else {
+		// No focal node or user navigated — just keep currentNode valid
+		if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
+			processTree.currentNode = findClosestAncestorInFiltered(
+				model.get("events"), filteredNames, processTree.currentNode
+			);
+		}
+		process_id = model.get("selected_event")?.ProcessId;
+	}
+	const nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
 	if (!nodeInEvents && allEvents.length > 0) {
-		const lookupNode = processTree.currentNode ?? processTree.initialNode;
-		process_id = getCurrentNodePid(allEvents, lookupNode);
+		process_id = getCurrentNodePid(allEvents, processTree.currentNode);
 		if (process_id == null) process_id = allEvents[1]?.ProcessId;
 		const event = allEvents.find(d => d.ProcessId === process_id) ?? {};
 		model.set("selected_event", event);
@@ -294,6 +318,7 @@ export default () => {
             model.save_changes();
           },
           onRootChanged: () => {
+            processTree.userNavigated = true;
             hiddenRootNames.clear();
             const panel = layout?.querySelector('#ptw-filter-panel');
             if (panel && panel.style.display !== 'none' && filterCheckboxes) {
