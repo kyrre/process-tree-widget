@@ -58,13 +58,15 @@ export class ProcessTree {
         // _traverseAll walks both node.children (visible) and node._children
         // (collapsed) so the full state is captured regardless of what's expanded.
         const expandedNodes = new Set();
-        if (this.tree?.root) {
+        const isFirstRender = !this.tree?.root;
+        if (!isFirstRender) {
             this._traverseAll(this.tree.root, node => {
                 if (node.children) expandedNodes.add(node.data._name);
             });
             this.currentNode = this.currentNode || "<root>";
         } else {
-            this.currentNode = "<root>";
+            this.currentNode = this.initialNode || "<root>";
+            this.initialNode = null;
         }
 
         if (this.tree) {
@@ -152,6 +154,7 @@ export class ProcessTree {
                 this.currentNode = d.data._name;
                 this.tree.setTree(d.data._name, 'downstream');
                 this.tree.svg.selectAll('.context-menu').remove();
+                this.options.onRootChanged?.();
             });
 
         menu.append('div')

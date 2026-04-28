@@ -22,6 +22,7 @@ class ProcessTreeWidget(anywidget.AnyWidget):
     events: traitlets.List = traitlets.List([]).tag(sync=True)
     _start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     _end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
+    _initial_node = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     custom_actions: traitlets.List = traitlets.List([]).tag(sync=True)
     triggered_action: traitlets.Dict = traitlets.Dict({}).tag(sync=True)
 
@@ -32,6 +33,7 @@ class ProcessTreeWidget(anywidget.AnyWidget):
         end_date: str | None = None,
         source: str | None = None,
         impute_date_times: bool = True,
+        initial_node: str | None = None,
         **kwargs,
     ):
         """Initialize the widget.
@@ -70,6 +72,9 @@ class ProcessTreeWidget(anywidget.AnyWidget):
 
         tree = ProcessTree(raw_list)
         self.events = tree.create_dependentree_format()
+
+        if initial_node is not None:
+            self._initial_node = initial_node
 
         # Derive the default time window from real (non-synthetic) nodes so the
         # timefilter brush covers the actual data range on first render.
