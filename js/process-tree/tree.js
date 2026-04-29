@@ -14,6 +14,9 @@ export class ProcessTree {
     constructor(container, options = {}) {
         this.container = container;
         this.currentNode = null;
+        this.focalNode = null;
+        this.userNavigated = false;
+        this.anchorNode = null;
         this.tree = null;
         this.data = null;
         this.zoom = null;
@@ -58,13 +61,19 @@ export class ProcessTree {
         // _traverseAll walks both node.children (visible) and node._children
         // (collapsed) so the full state is captured regardless of what's expanded.
         const expandedNodes = new Set();
-        if (this.tree?.root) {
+        const isFirstRender = !this.tree?.root;
+        if (!isFirstRender) {
             this._traverseAll(this.tree.root, node => {
                 if (node.children) expandedNodes.add(node.data._name);
             });
             this.currentNode = this.currentNode || "<root>";
         } else {
-            this.currentNode = "<root>";
+            if (this.initialNode) {
+                this.focalNode = this.initialNode;
+                this.currentNode = this.initialNode;
+            }
+            this.currentNode = this.currentNode || "<root>";
+            this.initialNode = null;
         }
 
         if (this.tree) {
@@ -150,8 +159,11 @@ export class ProcessTree {
             .style('cursor', 'pointer')
             .on('click', () => {
                 this.currentNode = d.data._name;
+                this.anchorNode = d.data._name;
+                this.focalNode = null;
                 this.tree.setTree(d.data._name, 'downstream');
                 this.tree.svg.selectAll('.context-menu').remove();
+                this.options.onRootChanged?.();
             });
 
         menu.append('div')
@@ -162,6 +174,17 @@ export class ProcessTree {
                 this.tree.expandNode(d);
                 this.tree.svg.selectAll('.context-menu').remove();
             });
+
+        (this.options.customActions ?? []).forEach(action => {
+            menu.append('div')
+                .text(action.label)
+                .style('padding', '8px 12px')
+                .style('cursor', 'pointer')
+                .on('click', () => {
+                    this.options.onActionTriggered?.(action.id, d.data);
+                    this.tree.svg.selectAll('.context-menu').remove();
+                });
+        });
 
         this.tree.svg.on('click.context-menu', () => {
             this.tree.svg.selectAll('.context-menu').remove();

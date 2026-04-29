@@ -22,6 +22,9 @@ class ProcessTreeWidget(anywidget.AnyWidget):
     events: traitlets.List = traitlets.List([]).tag(sync=True)
     _start_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
     _end_date = traitlets.Unicode(None, allow_none=True).tag(sync=True)
+    _initial_node = traitlets.Unicode(None, allow_none=True).tag(sync=True)
+    custom_actions: traitlets.List = traitlets.List([]).tag(sync=True)
+    triggered_action: traitlets.Dict = traitlets.Dict({}).tag(sync=True)
 
     def __init__(
         self,
@@ -30,6 +33,7 @@ class ProcessTreeWidget(anywidget.AnyWidget):
         end_date: str | None = None,
         source: str | None = None,
         impute_date_times: bool = True,
+        initial_node: tuple[int, object] | None = None,
         **kwargs,
     ):
         """Initialize the widget.
@@ -68,6 +72,25 @@ class ProcessTreeWidget(anywidget.AnyWidget):
 
         tree = ProcessTree(raw_list)
         self.events = tree.create_dependentree_format()
+
+        if initial_node is not None:
+            pid, ts = initial_node
+            from datetime import datetime
+            # Normalize ts to a naive datetime for comparison (strip tzinfo if present)
+            ts_dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))
+            ts_naive = ts_dt.replace(tzinfo=None)
+            match = next(
+                (
+                    e["_name"]
+                    for e in self.events
+                    if e.get("ProcessId") == pid
+                    and e.get("TargetProcessCreationTime") is not None
+                    and e["TargetProcessCreationTime"].replace(tzinfo=None) == ts_naive
+                ),
+                None,
+            )
+            if match is not None:
+                self._initial_node = match
 
         # Derive the default time window from real (non-synthetic) nodes so the
         # timefilter brush covers the actual data range on first render.

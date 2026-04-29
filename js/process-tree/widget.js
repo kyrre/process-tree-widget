@@ -1,4 +1,4 @@
-import { getCurrentNodePid, filterAndSortData } from "../utils.js";
+import { getCurrentNodePid, filterAndSortData, filterByRootNames, findClosestAncestorInFiltered } from "../utils.js";
 import { ProcessTree } from "./tree.js";
 import { html } from "htl";
 
@@ -26,15 +26,49 @@ function updateDateLabel(el, model) {
   el.textContent = s && e ? `${s} — ${e}` : "";
 }
 
-function initializeProcessTree(processTree, model) {
+function initializeProcessTree(processTree, model, hiddenRootNames, focalLabel = null) {
 	let allEvents = filterAndSortData(
 		model.get("events"),
 		model.get("_start_date"),
 		model.get("_end_date")
 	);
+	const focalNode = processTree.focalNode ?? processTree.initialNode;
+	// Use anchorNode (or focalNode) as the filter root — not the already-walked currentNode
+	const filterRoot = processTree.userNavigated
+		? (processTree.anchorNode || processTree.currentNode)
+		: (focalNode || processTree.currentNode);
+	allEvents = filterByRootNames(allEvents, filterRoot, hiddenRootNames);
 
-	let process_id = model.get("selected_event")?.ProcessId;
-	let nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
+	const filteredNames = new Set(allEvents.map(e => e._name));
+
+	let process_id;
+	if (focalNode && !processTree.userNavigated) {
+		const focalInFiltered = allEvents.find(d => d._name === focalNode);
+		if (focalInFiltered) {
+			processTree.currentNode = focalNode;
+			process_id = focalInFiltered.ProcessId;
+		} else {
+			processTree.currentNode = findClosestAncestorInFiltered(model.get("events"), filteredNames, focalNode);
+			process_id = null;
+		}
+		if (focalLabel) focalLabel.style.display = focalInFiltered ? "none" : "";
+	} else {
+		// Walk from anchorNode so the walk never cascades
+		if (processTree.anchorNode && !filteredNames.has(processTree.anchorNode)) {
+			const ancestor = findClosestAncestorInFiltered(model.get("events"), filteredNames, processTree.anchorNode);
+			processTree.currentNode = ancestor;
+		} else if (processTree.anchorNode) {
+			processTree.currentNode = processTree.anchorNode;
+		} else if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
+			processTree.currentNode = findClosestAncestorInFiltered(
+				model.get("events"), filteredNames, processTree.currentNode
+			);
+		}
+		process_id = model.get("selected_event")?.ProcessId;
+		if (focalLabel) focalLabel.style.display = "none";
+	}
+
+	const nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
 	if (!nodeInEvents && allEvents.length > 0) {
 		process_id = getCurrentNodePid(allEvents, processTree.currentNode);
@@ -46,7 +80,6 @@ function initializeProcessTree(processTree, model) {
 
 	processTree.initialize(allEvents, process_id);
 }
-
 
 function fmtTooltipDate(val) {
   if (!val) return null;
@@ -137,18 +170,86 @@ function themeColors() {
   };
 }
 
+function getRootChildStats(events, currentRoot) {
+  const childrenOf = new Map();
+  for (const e of events) {
+    const p = e._deps?.[0];
+    if (p) { if (!childrenOf.has(p)) childrenOf.set(p, []); childrenOf.get(p).push(e._name); }
+  }
+  const countSubtree = (name) => {
+    let n = 1;
+    for (const child of (childrenOf.get(name) ?? [])) n += countSubtree(child);
+    return n;
+  };
+  const root = currentRoot || "<root>";
+  return (childrenOf.get(root) ?? [])
+    .map(name => {
+      const e = events.find(ev => ev._name === name);
+      return { name, label: e?.ProcessName || name, count: countSubtree(name) };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+
+function rebuildFilterPanel(container, events, currentRoot, hiddenRootNames, onToggle) {
+  const stats = getRootChildStats(events, currentRoot);
+  const currentNames = new Set(stats.map(s => s.name));
+  for (const name of [...hiddenRootNames]) { if (!currentNames.has(name)) hiddenRootNames.delete(name); }
+  container.innerHTML = '';
+  const text = c('#374151', '#cbd5e1');
+  const muted = c('#6b7280', '#64748b');
+
+  let debounceTimer = null;
+  const debouncedToggle = () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(onToggle, 300); };
+
+  for (const { name, label, count } of stats) {
+    const e = events.find(ev => ev._name === name);
+    const pid = e?.ProcessId;
+    const row = document.createElement('label');
+    row.style.cssText = `display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;color:${text};font-family:sans-serif;`;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !hiddenRootNames.has(name);
+    cb.dataset.name = name;
+    cb.onchange = () => {
+      const allCbs = container.querySelectorAll('input[type=checkbox]');
+      const checkedCount = [...allCbs].filter(c => c.checked).length;
+      if (!cb.checked && checkedCount === 0) { cb.checked = true; return; }
+      cb.checked ? hiddenRootNames.delete(name) : hiddenRootNames.add(name);
+      debouncedToggle();
+    };
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = pid != null ? `${label} (${pid})` : label;
+    labelSpan.style.flex = '1';
+    const countSpan = document.createElement('span');
+    countSpan.textContent = count;
+    countSpan.style.cssText = `color:${muted};font-size:11px;`;
+    row.appendChild(cb); row.appendChild(labelSpan); row.appendChild(countSpan);
+    container.appendChild(row);
+  }
+}
+
 export default () => {
   let processTree = null;
   let layout = null;
   let labelStyle = null;
+  let filterCheckboxes = null;
+  const hiddenRootNames = new Set();
 
   return {
     initialize({ model }) {
+      const getFocalLabel = () => layout?.querySelector("#ptw-focal-label") ?? null;
+      let dateDebounce = null;
       const onDateChange  = () => {
         if (layout) updateDateLabel(layout.querySelector("#ptw-date-label"), model);
-        if (processTree) initializeProcessTree(processTree, model);
+        clearTimeout(dateDebounce);
+        dateDebounce = setTimeout(() => {
+          if (processTree) initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel());
+        }, 50);
       };
-      const onEventsChange = () => { if (processTree) initializeProcessTree(processTree, model); };
+      const onEventsChange = () => {
+        if (filterCheckboxes) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel()));
+        if (processTree) initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel());
+      };
       model.on("change:_start_date", onDateChange);
       model.on("change:_end_date",   onDateChange);
       model.on("change:events",      onEventsChange);
@@ -156,10 +257,13 @@ export default () => {
         model.off("change:_start_date", onDateChange);
         model.off("change:_end_date",   onDateChange);
         model.off("change:events",      onEventsChange);
+        model.off("change:custom_actions");
         try { processTree?.destroy?.(); } catch {}
         processTree = null;
         layout = null;
         labelStyle = null;
+        filterCheckboxes = null;
+        hiddenRootNames.clear();
       };
     },
 
@@ -171,7 +275,16 @@ export default () => {
               <button title="Go to parent"   onclick=${() => processTree?.goToParent()}>&larr;</button>
               <button title="Go to root"     onclick=${() => processTree?.goToRoot()}>⌂</button>
               <button title="Go to selected" onclick=${() => processTree?.goToSelected()}>&rarr;</button>
+              <button id="ptw-filter-toggle" style="margin-left:6px;font-size:11px;font-family:sans-serif;padding:2px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">Filter subtrees</button>
+              <span id="ptw-focal-label" style="margin-left:6px;font-size:11px;font-family:sans-serif;color:#f59e0b;display:none;">focal node outside filter</span>
               <span id="ptw-date-label" style="margin-left:auto;font-size:11px;font-family:sans-serif;opacity:0.5;"></span>
+            </div>
+            <div id="ptw-filter-panel" style="display:none;border:1px solid ${c('#e2e8f0','#334155')};border-radius:4px;padding:6px;">
+              <div style="display:flex;gap:4px;margin-bottom:6px;">
+                <button id="ptw-select-all" style="font-size:11px;font-family:sans-serif;padding:1px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">All</button>
+                <button id="ptw-clear-all"  style="font-size:11px;font-family:sans-serif;padding:1px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">None</button>
+              </div>
+              <div id="ptw-filter-checkboxes"></div>
             </div>
             <div id="tree" style="flex:1;min-height:400px;padding:10px;display:flex;align-items:center;justify-content:center;"></div>
           </div>`;
@@ -179,8 +292,29 @@ export default () => {
         labelStyle = document.createElement('style');
         el.appendChild(labelStyle);
 
+        filterCheckboxes = layout.querySelector('#ptw-filter-checkboxes');
+
+        layout.querySelector('#ptw-filter-toggle').onclick = () => {
+          const panel = layout.querySelector('#ptw-filter-panel');
+          const opening = panel.style.display === 'none';
+          panel.style.display = opening ? 'block' : 'none';
+          if (opening) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
+        };
+        layout.querySelector('#ptw-select-all').onclick = () => {
+          layout.querySelectorAll('#ptw-filter-checkboxes input').forEach(cb => { cb.checked = true; hiddenRootNames.delete(cb.dataset.name); });
+          initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label"));
+        };
+        layout.querySelector('#ptw-clear-all').onclick = () => {
+          const cbs = [...layout.querySelectorAll('#ptw-filter-checkboxes input')];
+          cbs.forEach((cb, i) => { cb.checked = i === 0; if (i !== 0) hiddenRootNames.add(cb.dataset.name); else hiddenRootNames.delete(cb.dataset.name); });
+          initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label"));
+        };
+
         const treeContainer = layout.querySelector("#tree");
         processTree = new ProcessTree(treeContainer);
+        const initialNode = model.get("_initial_node") || null;
+        processTree.initialNode = initialNode;
+        processTree.anchorNode = initialNode;
         processTree.setOptions({
           modifyEntityName: ({ ProcessName, ProcessId }) => (ProcessName && ProcessName !== 'MISSING') ? ProcessName : `pid:${ProcessId}`,
           textClick: () => null,
@@ -192,18 +326,33 @@ export default () => {
             model.set("selected_event", event);
             model.save_changes();
             processTree.tree.selectedNode = node;
-          }
+          },
+          customActions: model.get("custom_actions") ?? [],
+          onActionTriggered: (id, nodeData) => {
+            const { _deps, ...event } = nodeData;
+            model.set("triggered_action", { id, ...event });
+            model.save_changes();
+          },
+          onRootChanged: () => {
+            processTree.userNavigated = true;
+            hiddenRootNames.clear();
+            const panel = layout?.querySelector('#ptw-filter-panel');
+            if (panel && panel.style.display !== 'none' && filterCheckboxes) {
+              rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
+            }
+          },
+        });
+        model.on("change:custom_actions", () => {
+          processTree.setOptions({ customActions: model.get("custom_actions") ?? [] });
         });
       }
 
-      // Re-apply colors fresh on every render (picks up theme changes on reload)
       processTree.setOptions(themeColors());
       labelStyle.textContent = `.ptw-node-label { fill: ${c("#0f172a", "#e2e8f0")} !important; }`;
 
-      // Re-attach layout to el (moves DOM node if already attached elsewhere)
       el.replaceChildren(layout);
       updateDateLabel(layout.querySelector("#ptw-date-label"), model);
-      requestAnimationFrame(() => initializeProcessTree(processTree, model));
+      requestAnimationFrame(() => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
 
       return () => { el.innerHTML = ""; };
     },

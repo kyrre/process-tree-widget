@@ -1,7 +1,11 @@
 import marimo
 
 __generated_with = "0.23.3"
-app = marimo.App(width="medium", sql_output="polars")
+app = marimo.App(
+    width="medium",
+    layout_file="layouts/demo_mde.grid.json",
+    sql_output="polars",
+)
 
 
 @app.cell(hide_code=True)
@@ -16,39 +20,40 @@ def _():
 
 @app.cell(hide_code=True)
 def _(ibis, mo):
-    mde = ibis.read_parquet("public/demo.parquet")
+    mde = ibis.read_parquet("data.parquet")
     mo.ui.table(mde, selection=None)
     return (mde,)
 
 
 @app.cell(hide_code=True)
 def _(ProcessTreeWidget, mde, mo):
-    widget = mo.ui.anywidget(ProcessTreeWidget(events=mde, source="mde")) 
+    widget = mo.ui.anywidget(
+        ProcessTreeWidget(events=mde, source="mde", custom_actions=[{"id": "load_events", "label": "Load events"}])
+    )
     widget
-    return
+    return (widget,)
 
 
 @app.cell
 def _(TimeFilterWidget, mde, mo):
     tf = mo.ui.anywidget(TimeFilterWidget(mde, source="mde"))
     tf
-    return (tf,)
-
-
-@app.cell
-def _(tf):
-    tf.start_date
     return
 
 
 @app.cell
-def _(tf):
-    tf.start_date
+def _(widget):
+    widget.value['selected_event']
     return
 
 
 @app.cell
-def _():
+def _(mo, widget):
+    triggered = widget.value.get("triggered_action", {})
+    mo.stop(not triggered, mo.callout(mo.md("Right-click a node and choose **Load events**"), kind="neutral"))
+    mo.md(
+        f"**Action fired:** `{triggered.get('id')}` on **{triggered.get('ProcessName')}** (PID {triggered.get('ProcessId')})"
+    )
     return
 
 
