@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "process_tree_widget"
-version = "0.1.7"
+version = "0.1.8"
 description = "Interactive process tree visualization widget for security and forensics analysis in marimo notebooks"
 requires-python = ">=3.12"
 authors = [

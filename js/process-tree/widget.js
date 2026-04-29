@@ -26,34 +26,48 @@ function updateDateLabel(el, model) {
   el.textContent = s && e ? `${s} — ${e}` : "";
 }
 
-function initializeProcessTree(processTree, model, hiddenRootNames) {
+function initializeProcessTree(processTree, model, hiddenRootNames, focalLabel = null) {
 	let allEvents = filterAndSortData(
 		model.get("events"),
 		model.get("_start_date"),
 		model.get("_end_date")
 	);
-	allEvents = filterByRootNames(allEvents, processTree.currentNode, hiddenRootNames);
+	const focalNode = processTree.focalNode ?? processTree.initialNode;
+	// Use anchorNode (or focalNode) as the filter root — not the already-walked currentNode
+	const filterRoot = processTree.userNavigated
+		? (processTree.anchorNode || processTree.currentNode)
+		: (focalNode || processTree.currentNode);
+	allEvents = filterByRootNames(allEvents, filterRoot, hiddenRootNames);
 
 	const filteredNames = new Set(allEvents.map(e => e._name));
 
-	// anchorNode is the user's intended root — set on first render from _initial_node,
-	// updated when user does "Set as new root". Always walk from anchorNode, never from
-	// currentNode, so the walk never cascades across brush moves.
-	if (processTree.anchorNode) {
-		if (filteredNames.has(processTree.anchorNode)) {
-			processTree.currentNode = processTree.anchorNode;
+	let process_id;
+	if (focalNode && !processTree.userNavigated) {
+		const focalInFiltered = allEvents.find(d => d._name === focalNode);
+		if (focalInFiltered) {
+			processTree.currentNode = focalNode;
+			process_id = focalInFiltered.ProcessId;
 		} else {
+			processTree.currentNode = findClosestAncestorInFiltered(model.get("events"), filteredNames, focalNode);
+			process_id = null;
+		}
+		if (focalLabel) focalLabel.style.display = focalInFiltered ? "none" : "";
+	} else {
+		// Walk from anchorNode so the walk never cascades
+		if (processTree.anchorNode && !filteredNames.has(processTree.anchorNode)) {
 			const ancestor = findClosestAncestorInFiltered(model.get("events"), filteredNames, processTree.anchorNode);
 			processTree.currentNode = ancestor;
-			processTree.anchorNode = ancestor;
+		} else if (processTree.anchorNode) {
+			processTree.currentNode = processTree.anchorNode;
+		} else if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
+			processTree.currentNode = findClosestAncestorInFiltered(
+				model.get("events"), filteredNames, processTree.currentNode
+			);
 		}
-	} else if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
-		processTree.currentNode = findClosestAncestorInFiltered(
-			model.get("events"), filteredNames, processTree.currentNode
-		);
+		process_id = model.get("selected_event")?.ProcessId;
+		if (focalLabel) focalLabel.style.display = "none";
 	}
 
-	let process_id = model.get("selected_event")?.ProcessId;
 	const nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
 	if (!nodeInEvents && allEvents.length > 0) {
@@ -223,13 +237,18 @@ export default () => {
 
   return {
     initialize({ model }) {
+      const getFocalLabel = () => layout?.querySelector("#ptw-focal-label") ?? null;
+      let dateDebounce = null;
       const onDateChange  = () => {
         if (layout) updateDateLabel(layout.querySelector("#ptw-date-label"), model);
-        if (processTree) initializeProcessTree(processTree, model, hiddenRootNames);
+        clearTimeout(dateDebounce);
+        dateDebounce = setTimeout(() => {
+          if (processTree) initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel());
+        }, 50);
       };
       const onEventsChange = () => {
-        if (filterCheckboxes) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames));
-        if (processTree) initializeProcessTree(processTree, model, hiddenRootNames);
+        if (filterCheckboxes) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel()));
+        if (processTree) initializeProcessTree(processTree, model, hiddenRootNames, getFocalLabel());
       };
       model.on("change:_start_date", onDateChange);
       model.on("change:_end_date",   onDateChange);
@@ -257,6 +276,7 @@ export default () => {
               <button title="Go to root"     onclick=${() => processTree?.goToRoot()}>⌂</button>
               <button title="Go to selected" onclick=${() => processTree?.goToSelected()}>&rarr;</button>
               <button id="ptw-filter-toggle" style="margin-left:6px;font-size:11px;font-family:sans-serif;padding:2px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">Filter subtrees</button>
+              <span id="ptw-focal-label" style="margin-left:6px;font-size:11px;font-family:sans-serif;color:#f59e0b;display:none;">focal node outside filter</span>
               <span id="ptw-date-label" style="margin-left:auto;font-size:11px;font-family:sans-serif;opacity:0.5;"></span>
             </div>
             <div id="ptw-filter-panel" style="display:none;border:1px solid ${c('#e2e8f0','#334155')};border-radius:4px;padding:6px;">
@@ -278,16 +298,16 @@ export default () => {
           const panel = layout.querySelector('#ptw-filter-panel');
           const opening = panel.style.display === 'none';
           panel.style.display = opening ? 'block' : 'none';
-          if (opening) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames));
+          if (opening) rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree?.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
         };
         layout.querySelector('#ptw-select-all').onclick = () => {
           layout.querySelectorAll('#ptw-filter-checkboxes input').forEach(cb => { cb.checked = true; hiddenRootNames.delete(cb.dataset.name); });
-          initializeProcessTree(processTree, model, hiddenRootNames);
+          initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label"));
         };
         layout.querySelector('#ptw-clear-all').onclick = () => {
           const cbs = [...layout.querySelectorAll('#ptw-filter-checkboxes input')];
           cbs.forEach((cb, i) => { cb.checked = i === 0; if (i !== 0) hiddenRootNames.add(cb.dataset.name); else hiddenRootNames.delete(cb.dataset.name); });
-          initializeProcessTree(processTree, model, hiddenRootNames);
+          initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label"));
         };
 
         const treeContainer = layout.querySelector("#tree");
@@ -314,10 +334,11 @@ export default () => {
             model.save_changes();
           },
           onRootChanged: () => {
+            processTree.userNavigated = true;
             hiddenRootNames.clear();
             const panel = layout?.querySelector('#ptw-filter-panel');
             if (panel && panel.style.display !== 'none' && filterCheckboxes) {
-              rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames));
+              rebuildFilterPanel(filterCheckboxes, model.get("events"), processTree.currentNode, hiddenRootNames, () => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
             }
           },
         });
@@ -331,7 +352,7 @@ export default () => {
 
       el.replaceChildren(layout);
       updateDateLabel(layout.querySelector("#ptw-date-label"), model);
-      requestAnimationFrame(() => initializeProcessTree(processTree, model, hiddenRootNames));
+      requestAnimationFrame(() => initializeProcessTree(processTree, model, hiddenRootNames, layout?.querySelector("#ptw-focal-label")));
 
       return () => { el.innerHTML = ""; };
     },

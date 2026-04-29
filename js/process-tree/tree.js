@@ -14,6 +14,8 @@ export class ProcessTree {
     constructor(container, options = {}) {
         this.container = container;
         this.currentNode = null;
+        this.focalNode = null;
+        this.userNavigated = false;
         this.anchorNode = null;
         this.tree = null;
         this.data = null;
@@ -66,7 +68,10 @@ export class ProcessTree {
             });
             this.currentNode = this.currentNode || "<root>";
         } else {
-            if (this.initialNode) this.currentNode = this.initialNode;
+            if (this.initialNode) {
+                this.focalNode = this.initialNode;
+                this.currentNode = this.initialNode;
+            }
             this.currentNode = this.currentNode || "<root>";
             this.initialNode = null;
         }
@@ -155,6 +160,7 @@ export class ProcessTree {
             .on('click', () => {
                 this.currentNode = d.data._name;
                 this.anchorNode = d.data._name;
+                this.focalNode = null;
                 this.tree.setTree(d.data._name, 'downstream');
                 this.tree.svg.selectAll('.context-menu').remove();
                 this.options.onRootChanged?.();

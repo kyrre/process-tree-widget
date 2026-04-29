@@ -26,7 +26,8 @@ def _(mo, tf, widget):
 
 
 @app.cell
-def _():
+def _(widget):
+    widget
     return
 
 
