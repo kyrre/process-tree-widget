@@ -9,6 +9,7 @@
 		"htl": "github:observablehq/htl"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.59.1",
 		"esbuild": "^0.24.0"
 	}
 }

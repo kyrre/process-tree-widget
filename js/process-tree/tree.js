@@ -14,8 +14,7 @@ export class ProcessTree {
     constructor(container, options = {}) {
         this.container = container;
         this.currentNode = null;
-        this.focalNode = null;
-        this.userNavigated = false;
+        this.anchorNode = null;
         this.tree = null;
         this.data = null;
         this.zoom = null;
@@ -67,9 +66,8 @@ export class ProcessTree {
             });
             this.currentNode = this.currentNode || "<root>";
         } else {
-            if (this.initialNode) this.focalNode = this.initialNode;
-            // Prefer currentNode if widget.js already corrected it via ancestor walk
-            this.currentNode = this.currentNode || this.initialNode || "<root>";
+            if (this.initialNode) this.currentNode = this.initialNode;
+            this.currentNode = this.currentNode || "<root>";
             this.initialNode = null;
         }
 
@@ -156,6 +154,7 @@ export class ProcessTree {
             .style('cursor', 'pointer')
             .on('click', () => {
                 this.currentNode = d.data._name;
+                this.anchorNode = d.data._name;
                 this.tree.setTree(d.data._name, 'downstream');
                 this.tree.svg.selectAll('.context-menu').remove();
                 this.options.onRootChanged?.();

@@ -34,32 +34,26 @@ function initializeProcessTree(processTree, model, hiddenRootNames) {
 	);
 	allEvents = filterByRootNames(allEvents, processTree.currentNode, hiddenRootNames);
 
-	const focalNode = processTree.focalNode ?? processTree.initialNode;
 	const filteredNames = new Set(allEvents.map(e => e._name));
 
-	let process_id;
-	if (focalNode && !processTree.userNavigated) {
-		const focalInFiltered = allEvents.find(d => d._name === focalNode);
-		if (focalInFiltered) {
-			// Focal node is visible — snap to it and select it
-			processTree.currentNode = focalNode;
-			process_id = focalInFiltered.ProcessId;
+	// anchorNode is the user's intended root — set on first render from _initial_node,
+	// updated when user does "Set as new root". Always walk from anchorNode, never from
+	// currentNode, so the walk never cascades across brush moves.
+	if (processTree.anchorNode) {
+		if (filteredNames.has(processTree.anchorNode)) {
+			processTree.currentNode = processTree.anchorNode;
 		} else {
-			// Focal node outside range — walk up from focalNode each time (not from currentNode)
-			processTree.currentNode = findClosestAncestorInFiltered(
-				model.get("events"), filteredNames, focalNode
-			);
-			process_id = null; // nothing to select; focal node not in view
+			const ancestor = findClosestAncestorInFiltered(model.get("events"), filteredNames, processTree.anchorNode);
+			processTree.currentNode = ancestor;
+			processTree.anchorNode = ancestor;
 		}
-	} else {
-		// No focal node or user navigated — just keep currentNode valid
-		if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
-			processTree.currentNode = findClosestAncestorInFiltered(
-				model.get("events"), filteredNames, processTree.currentNode
-			);
-		}
-		process_id = model.get("selected_event")?.ProcessId;
+	} else if (processTree.currentNode && !filteredNames.has(processTree.currentNode)) {
+		processTree.currentNode = findClosestAncestorInFiltered(
+			model.get("events"), filteredNames, processTree.currentNode
+		);
 	}
+
+	let process_id = model.get("selected_event")?.ProcessId;
 	const nodeInEvents = process_id != null && allEvents.find(d => d.ProcessId === process_id);
 
 	if (!nodeInEvents && allEvents.length > 0) {
@@ -262,13 +256,13 @@ export default () => {
               <button title="Go to parent"   onclick=${() => processTree?.goToParent()}>&larr;</button>
               <button title="Go to root"     onclick=${() => processTree?.goToRoot()}>⌂</button>
               <button title="Go to selected" onclick=${() => processTree?.goToSelected()}>&rarr;</button>
-              <button id="ptw-filter-toggle" style="margin-left:6px;">☰ Child filter</button>
+              <button id="ptw-filter-toggle" style="margin-left:6px;font-size:11px;font-family:sans-serif;padding:2px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">Filter subtrees</button>
               <span id="ptw-date-label" style="margin-left:auto;font-size:11px;font-family:sans-serif;opacity:0.5;"></span>
             </div>
             <div id="ptw-filter-panel" style="display:none;border:1px solid ${c('#e2e8f0','#334155')};border-radius:4px;padding:6px;">
-              <div style="display:flex;gap:6px;margin-bottom:4px;">
-                <button id="ptw-select-all">All</button>
-                <button id="ptw-clear-all">None</button>
+              <div style="display:flex;gap:4px;margin-bottom:6px;">
+                <button id="ptw-select-all" style="font-size:11px;font-family:sans-serif;padding:1px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">All</button>
+                <button id="ptw-clear-all"  style="font-size:11px;font-family:sans-serif;padding:1px 8px;border-radius:4px;border:1px solid ${c('#d1d5db','#374151')};background:transparent;color:inherit;cursor:pointer;opacity:0.7;">None</button>
               </div>
               <div id="ptw-filter-checkboxes"></div>
             </div>
@@ -298,7 +292,9 @@ export default () => {
 
         const treeContainer = layout.querySelector("#tree");
         processTree = new ProcessTree(treeContainer);
-        processTree.initialNode = model.get("_initial_node") || null;
+        const initialNode = model.get("_initial_node") || null;
+        processTree.initialNode = initialNode;
+        processTree.anchorNode = initialNode;
         processTree.setOptions({
           modifyEntityName: ({ ProcessName, ProcessId }) => (ProcessName && ProcessName !== 'MISSING') ? ProcessName : `pid:${ProcessId}`,
           textClick: () => null,
@@ -318,7 +314,6 @@ export default () => {
             model.save_changes();
           },
           onRootChanged: () => {
-            processTree.userNavigated = true;
             hiddenRootNames.clear();
             const panel = layout?.querySelector('#ptw-filter-panel');
             if (panel && panel.style.display !== 'none' && filterCheckboxes) {
